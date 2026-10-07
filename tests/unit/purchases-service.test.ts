@@ -95,3 +95,9 @@ test('costo unitario con centavos y IVA sobre el total: el encabezado cuadra con
   assert.equal(await code(svc.purchases.register(admin, fact('778', [{ productId: 'az', quantity: '1', unitCost: 10.555 }]))), 'VALIDATION');
   assert.equal(await code(svc.purchases.register(admin, fact('779', [{ productId: 'az', quantity: '1', lineAmount: 10.5 }]))), 'VALIDATION');
 });
+test('descuento por línea en el servicio: "20" y "12,5" %; inválidos se rechazan', async () => {
+  const { db, svc } = world();
+  await svc.purchases.register(admin, fact('880', [{ productId: 'az', quantity: '12', lineAmount: 39696, discount: '20' }]));
+  assert.equal([...db.purchases.values()][0].purchase.netAmount, 31757);
+  for (const [n, d] of [['881', '100'], ['882', 'abc'], ['883', '-5']]) assert.equal(await code(svc.purchases.register(admin, fact(n, [{ productId: 'az', quantity: '1', lineAmount: 100, discount: d }]))), 'VALIDATION', d);
+});

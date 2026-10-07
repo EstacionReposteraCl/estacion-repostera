@@ -33,15 +33,23 @@ export interface PurchaseLineInput {
 }
 export interface PurchaseLinePlan { lineNet: Peso; lineVat: Peso; lineTotal: Peso; costBasis: Peso }
 
-/** Monto de la línea en pesos enteros: redondeo(cantidad × costo unitario) — el redondeo se hace UNA vez, sobre el total de la línea. */
-export function enteredLineAmount(quantityBase: Milli, e: EnteredCost): Peso {
+/**
+ * Monto de la línea en pesos enteros: redondeo(cantidad × costo unitario × (1 − descuento)).
+ * El redondeo se hace UNA sola vez, al final (ej.: caja $39.696 con 20 % de dcto. = 31.756,8 -> $31.757, igual que la factura).
+ * discountMilli: milésimas de punto porcentual (20 % = 20000).
+ */
+export function enteredLineAmount(quantityBase: Milli, e: EnteredCost, discountMilli = 0): Peso {
   if (quantityBase <= 0n) throw validation('La cantidad comprada debe ser mayor que 0.');
+  if (!Number.isSafeInteger(discountMilli) || discountMilli < 0 || discountMilli >= 100_000) throw validation('El descuento debe estar entre 0 % y menos de 100 %.');
+  const keep = BigInt(100_000 - discountMilli);
   let amount: number;
-  if (e.kind === 'lineAmount') amount = e.amount;
-  else {
+  if (e.kind === 'lineAmount') {
+    if (!Number.isSafeInteger(e.amount) || e.amount < 0) throw validation('Monto de compra inválido.');
+    amount = Number(divRoundHalfUp(BigInt(e.amount) * keep, 100_000n));
+  } else {
     const cents = e.kind === 'unitCostCents' ? e.cents : e.amount * 100;
     if (!Number.isSafeInteger(cents) || cents < 0) throw validation('Costo unitario inválido (máximo 2 decimales).');
-    amount = Number(divRoundHalfUp(quantityBase * BigInt(cents), 100_000n));   // milésimas × centavos ÷ (1000 × 100)
+    amount = Number(divRoundHalfUp(quantityBase * BigInt(cents) * keep, 100_000n * 100_000n));   // milésimas × centavos × fracción
   }
   if (!Number.isSafeInteger(amount) || amount < 0) throw validation('Monto de compra inválido.');
   return amount;
@@ -69,9 +77,9 @@ function distribute(total: number, weights: number[]): number[] {
  * (neto: IVA = redondeo(Σneto × 19 %); con IVA: neto = redondeo(Σtotal ÷ 1,19)) y se reparte entre líneas por mayor resto.
  * Así Σ líneas = encabezado y el total coincide con el papel. costBasis = neto (factura) o total (boleta).
  */
-export function planPurchaseDocument(lines: { quantityBase: Milli; entered: EnteredCost }[], o: { pricesIncludeVat: boolean; vatRecoverable: boolean; vatRateHundredths?: number }): PurchaseLinePlan[] {
+export function planPurchaseDocument(lines: { quantityBase: Milli; entered: EnteredCost; discountMilli?: number }[], o: { pricesIncludeVat: boolean; vatRecoverable: boolean; vatRateHundredths?: number }): PurchaseLinePlan[] {
   const rate = o.vatRateHundredths ?? 1900;
-  const amounts = lines.map((l) => enteredLineAmount(l.quantityBase, l.entered));
+  const amounts = lines.map((l) => enteredLineAmount(l.quantityBase, l.entered, l.discountMilli ?? 0));
   const sum = amounts.reduce((s, a) => s + a, 0);
   let nets: number[], vats: number[];
   if (o.pricesIncludeVat) {

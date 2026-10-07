@@ -1,4 +1,5 @@
 import { assertCan, type Actor } from '../core/permissions/permissions.ts';
+import { parsePercent } from '../core/money/parse-money.ts';
 import { validation, notFound } from '../core/errors/index.ts';
 import type { UnitOfWork, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow } from '../repositories/ports.ts';
 
@@ -6,14 +7,7 @@ export interface Deps { uow: UnitOfWork; settings: SettingsStore }
 const opt = (s: string | null | undefined, max: number, label: string) => {
   const t = (s ?? '').trim(); if (t.length > max) throw validation(`${label}: máximo ${max} caracteres.`); return t || null;
 };
-/** "1,5" / "1.5" / "0" -> milésimas de punto porcentual (1500). Rango 0–100 %, máx. 3 decimales. */
-export function parsePercent(text: string): number {
-  const t = text.trim().replace(',', '.'); const m = /^(\d{1,3})(?:\.(\d{1,3}))?$/.exec(t);
-  if (!m) throw validation('Porcentaje inválido (ej.: 1,5).');
-  const v = Number(m[1]) * 1000 + Number((m[2] ?? '').padEnd(3, '0') || '0');
-  if (v > 100_000) throw validation('El porcentaje no puede superar 100 %.');
-  return v;
-}
+export { parsePercent } from '../core/money/parse-money.ts';
 /** RUT chileno con dígito verificador (acepta con o sin puntos/guion). Devuelve formato 12.345.678-9. */
 export function normalizeRut(raw: string): string {
   const c = raw.replace(/[.\s-]/g, '').toUpperCase(); const m = /^(\d{7,8})([0-9K])$/.exec(c);

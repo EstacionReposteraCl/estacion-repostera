@@ -4,14 +4,18 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { registerPurchaseAction, purchaseSearchAction } from "@/actions/purchases.actions";
 import type { ProductPublicDTO } from "@/dto/product.dto";
-import { planPurchaseDocument, type EnteredCost } from "@/domain/purchases/purchases";
-import { parseMoneyCents } from "@/core/money/parse-money";
+import { planPurchaseDocument, derivedUnitCost, type EnteredCost } from "@/domain/purchases/purchases";
+import { parseMoneyCents, parsePercent } from "@/core/money/parse-money";
 import { parseQuantity } from "@/core/money/quantity";
 
 interface Sup { id: string; name: string; taxId: string | null }
 type Mode = "unit" | "line";
-interface Line { p: ProductPublicDTO; qty: string; amount: string; mode: Mode }
+interface Line { p: ProductPublicDTO; qty: string; amount: string; mode: Mode; disc: string }
 const clp = (n: number) => "$" + n.toLocaleString("es-CL");
+/** "2646.42" -> "$2.646,42" */
+const clpDec = (s: string) => { const [e, c] = s.split("."); const ent = "$" + Number(e).toLocaleString("es-CL"); return c && c !== "00" ? `${ent},${c}` : ent; };
+/** "" -> 0; "20" -> 20000; inválido o >= 100 % -> null */
+const disc = (s: string) => { if (!s.trim()) return 0; try { const v = parsePercent(s.replace("%", "")); return v < 100_000 ? v : null; } catch { return null; } };
 
 export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: string }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [error, setError] = useState<string | null>(null);
@@ -30,9 +34,10 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
     if (l.mode === "unit") return { kind: "unitCostCents", cents: c };
     return c % 100 === 0 ? { kind: "lineAmount", amount: c / 100 } : null;
   });
+  const qtys: bigint[] = [];
   const plans = (() => {
-    const idx: number[] = []; const ins: { quantityBase: bigint; entered: EnteredCost }[] = [];
-    lines.forEach((l, i) => { try { const qty = parseQuantity(l.qty.replace(",", ".")); const c = costs[i]; if (c && qty > 0n) { idx.push(i); ins.push({ quantityBase: qty, entered: c }); } } catch { /* línea incompleta */ } });
+    const idx: number[] = []; const ins: { quantityBase: bigint; entered: EnteredCost; discountMilli: number }[] = [];
+    lines.forEach((l, i) => { try { const qty = parseQuantity(l.qty.replace(",", ".")); const c = costs[i]; const d = disc(l.disc); if (c && d !== null && qty > 0n) { idx.push(i); qtys[i] = qty; ins.push({ quantityBase: qty, entered: c, discountMilli: d }); } } catch { /* línea incompleta */ } });
     const out: (ReturnType<typeof planPurchaseDocument>[number] | null)[] = lines.map(() => null);
     try { planPurchaseDocument(ins, { pricesIncludeVat: withVat, vatRecoverable: docType === "FACTURA" }).forEach((p, k) => { out[idx[k]] = p; }); } catch { /* inválido */ }
     return out;
@@ -41,7 +46,7 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
   const allOk = lines.length > 0 && plans.every(Boolean);
   const paperC = parseMoneyCents(paperTotal); const paper = paperC === null ? NaN : Math.round(paperC / 100); const diff = Number.isFinite(paper) ? paper - totals.total : null;
 
-  function add(p: ProductPublicDTO) { if (!lines.some((l) => l.p.id === p.id)) setLines((ls) => [...ls, { p, qty: "1", amount: "", mode: "unit" }]); setQ(""); setResults([]); searchRef.current?.focus(); }
+  function add(p: ProductPublicDTO) { if (!lines.some((l) => l.p.id === p.id)) setLines((ls) => [...ls, { p, qty: "1", amount: "", mode: "unit", disc: "" }]); setQ(""); setResults([]); searchRef.current?.focus(); }
   const upd = (i: number, d: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...d } : l)));
   function changeType(t: typeof docType) { setDocType(t); setWithVat(t !== "FACTURA"); }
 
@@ -51,7 +56,7 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
       const r = await registerPurchaseAction({
         supplierId: supplierId && supplierId !== "__new" ? supplierId : null, newSupplier: supplierId === "__new" ? newSup : null,
         docType, docNumber: docNumber || null, docDate, pricesIncludeVat: withVat, note,
-        lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(l.mode === "unit" ? { unitCost: (parseMoneyCents(l.amount) ?? NaN) / 100 } : { lineAmount: (parseMoneyCents(l.amount) ?? NaN) / 100 }) })),
+        lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(l.mode === "unit" ? { unitCost: (parseMoneyCents(l.amount) ?? NaN) / 100 } : { lineAmount: (parseMoneyCents(l.amount) ?? NaN) / 100 }), ...(l.disc.trim() ? { discount: l.disc.replace("%", "").trim() } : {}) })),
       });
       if (r.ok) router.push(`/compras/${r.id}?nueva=1`); else setError(r.error);
     });
@@ -76,22 +81,26 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
       <p className="hint">{docType === "FACTURA" ? "Factura: el IVA es crédito fiscal, el costo del inventario es el NETO." : "Boleta / otro: el IVA no se recupera, el costo del inventario es el TOTAL pagado."}</p>
 
       <h3 style={{ margin: "18px 0 6px", fontSize: "1rem" }}>Productos</h3>
+      <p className="hint" style={{ marginTop: 0 }}>¿La factura cobra la caja o el pack sin precio por unidad? Pon la cantidad de unidades (ej. 12), elige <b>total línea</b> y escribe el monto de la caja; si trae descuento, ponlo en <b>Dcto. %</b>. El sistema calcula el costo de cada unidad.</p>
       <div className="pos-search"><input ref={searchRef} type="search" value={q} onChange={(e) => { setQ(e.target.value); if (e.target.value.trim().length < 2) { seq.current++; setResults([]); } }}
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (results[0]) add(results[0]); } }} placeholder="Escanea o busca el producto comprado…" aria-label="Buscar producto comprado" /></div>
       {results.length > 0 && <ul className="pos-results">{results.map((r) => <li key={r.id}><button type="button" onClick={() => add(r)}><span className="pr-name">{r.name}<span className="muted small"> · {r.sku}</span></span><span className="muted small">stock {r.stock}</span></button></li>)}</ul>}
       {lines.length > 0 && (
         <div className="tablewrap" style={{ marginTop: 10 }}><table className="list">
-          <thead><tr><th>Producto</th><th>Cantidad</th><th>Costo ({costLabel})</th><th className="num">Neto</th><th className="num hide-sm">IVA</th><th className="num">Total</th><th></th></tr></thead>
+          <thead><tr><th>Producto</th><th>Cantidad</th><th>Costo ({costLabel})</th><th>Dcto. %</th><th className="num">Neto</th><th className="num hide-sm">IVA</th><th className="num">Total</th><th></th></tr></thead>
           <tbody>{lines.map((l, i) => { const pl = plans[i]; return (
             <tr key={l.p.id}>
               <td>{l.p.name}<div className="muted small">{l.p.sku}</div></td>
               <td><input className="qty" value={l.qty} onChange={(e) => upd(i, { qty: e.target.value })} inputMode="decimal" aria-label={`Cantidad de ${l.p.name}`} style={{ width: 80 }} /></td>
               <td><div className="inline"><input className="money" value={l.amount} onChange={(e) => upd(i, { amount: e.target.value })} inputMode="decimal" placeholder={l.mode === "unit" ? "$ ej. 1.508,50" : "$"} aria-label={`Costo de ${l.p.name}`} title={l.mode === "unit" ? "Admite centavos: 1.508,50" : "Total de la línea en pesos"} />
-                <select value={l.mode} onChange={(e) => upd(i, { mode: e.target.value as Mode })} aria-label="Tipo de costo"><option value="unit">por unidad</option><option value="line">total línea</option></select></div></td>
+                <select value={l.mode} onChange={(e) => upd(i, { mode: e.target.value as Mode })} aria-label="Tipo de costo"><option value="unit">por unidad</option><option value="line">total línea</option></select></div>
+                {pl && qtys[i] ? <div className="muted small" style={{ marginTop: 2 }}>= {clpDec(derivedUnitCost(pl.costBasis, qtys[i]))} c/u{docType === "FACTURA" ? " neto" : ""}</div> : null}</td>
+              <td><input value={l.disc} onChange={(e) => upd(i, { disc: e.target.value })} inputMode="decimal" placeholder="0" aria-label={`Descuento % de ${l.p.name}`} style={{ width: 64 }} />{disc(l.disc) === null && <div className="out small">inválido</div>}</td>
+
               <td className="num">{pl ? clp(pl.lineNet) : "—"}</td><td className="num hide-sm">{pl ? clp(pl.lineVat) : "—"}</td><td className="num">{pl ? clp(pl.lineTotal) : "—"}</td>
               <td><button type="button" className="link" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>Quitar</button></td>
             </tr>); })}</tbody>
-          <tfoot><tr><th colSpan={3} style={{ textAlign: "right" }}>Totales</th><th className="num">{clp(totals.net)}</th><th className="num hide-sm">{clp(totals.vat)}</th><th className="num">{clp(totals.total)}</th><th></th></tr></tfoot>
+          <tfoot><tr><th colSpan={4} style={{ textAlign: "right" }}>Totales</th><th className="num">{clp(totals.net)}</th><th className="num hide-sm">{clp(totals.vat)}</th><th className="num">{clp(totals.total)}</th><th></th></tr></tfoot>
         </table></div>
       )}
       <div className="fields" style={{ marginTop: 12 }}>

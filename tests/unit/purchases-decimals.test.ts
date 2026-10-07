@@ -46,3 +46,14 @@ test('costo unitario inválido', () => {
   assert.throws(() => planPurchaseDocument([{ quantityBase: 1000n, entered: { kind: 'unitCostCents', cents: 1.5 } }], { pricesIncludeVat: false, vatRecoverable: true }));
   assert.throws(() => planPurchaseDocument([{ quantityBase: 0n, entered: { kind: 'unitCostCents', cents: 100 } }], { pricesIncludeVat: false, vatRecoverable: true }));
 });
+
+test('pack sin precio unitario con descuento: caja de 12 a $39.696 con 20 % = $31.757 -> $2.646,42 c/u', async () => {
+  const { derivedUnitCost } = await import('../../src/domain/purchases/purchases.ts');
+  const [l] = planPurchaseDocument([{ quantityBase: 12000n, entered: { kind: 'lineAmount', amount: 39696 }, discountMilli: 20000 }], { pricesIncludeVat: false, vatRecoverable: true });
+  assert.equal(l.lineNet, 31757);
+  assert.equal(derivedUnitCost(l.costBasis, 12000n), '2646.42');
+  // por unidad con descuento: redondeo una sola vez (6 × 1.508,50 × 0,875 = 7.919,625 -> 7.920)
+  const [u] = planPurchaseDocument([{ quantityBase: 6000n, entered: { kind: 'unitCostCents', cents: 150850 }, discountMilli: 12500 }], { pricesIncludeVat: false, vatRecoverable: true });
+  assert.equal(u.lineNet, 7920);
+  assert.throws(() => planPurchaseDocument([{ quantityBase: 1000n, entered: { kind: 'lineAmount', amount: 100 }, discountMilli: 100000 }], { pricesIncludeVat: false, vatRecoverable: true }));
+});
