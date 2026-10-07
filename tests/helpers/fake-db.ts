@@ -79,6 +79,8 @@ export class FakeDb implements State {
     sellerToday: async (uid, date) => { const l = [...this.sales.values()].map((s) => s.sale).filter((s) => s.createdById === uid && s.businessDate === date && s.status === 'COMPLETED'); return { count: l.length, total: l.reduce((a, s) => a + s.total, 0) }; },
     financial: async () => { const z = { sales: 0, netTotal: 0, costOfGoodsSold: 0, grossProfit: 0, totalCharges: 0, realProfit: 0 };
       for (const { sale } of this.sales.values()) { if (sale.status !== 'COMPLETED') continue; const f = this.fin.get(sale.id)!; z.sales++; z.netTotal += f.netTotal; z.costOfGoodsSold += f.costOfGoodsSold; z.grossProfit += f.grossProfit; z.totalCharges += f.totalCharges; z.realProfit += f.realProfit; } return z; },
+    breakdown: async () => ({ byDay: [], byProduct: [], bySeller: [], byChannel: [], byPayment: [], charges: [], voided: { count: 0, total: 0 } }),
+    inventorySnapshot: async () => ({ productsWithStock: 0, productsWithoutStock: 0, inventoryValue: 0, lowStock: [] }),
   };
   passwords = new Map<string, string>();
   userStore: UserStore = { getById: async (id) => this.users.get(id) ?? null, countActiveAdmins: async () => [...this.users.values()].filter((u) => u.role === 'ADMINISTRADOR' && !u.banned).length,

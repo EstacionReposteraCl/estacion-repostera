@@ -138,6 +138,20 @@ export interface SaleMeta { channel: string; seller: string; payments: { method:
 export interface ReportReader {
   sellerToday(userId: string, businessDate: string): Promise<{ count: number; total: Peso }>;
   financial(range: { from: string; to: string }, branchId: string): Promise<{ sales: number; netTotal: Peso; costOfGoodsSold: Peso; grossProfit: Peso; totalCharges: Peso; realProfit: Peso }>;
+  /** Desglose del período (solo ventas COMPLETED). SENSIBLE: incluye costos. */
+  breakdown(range: { from: string; to: string }, branchId: string): Promise<ReportBreakdown>;
+  /** Foto actual del inventario valorizado. SENSIBLE. */
+  inventorySnapshot(branchId: string): Promise<{ productsWithStock: number; productsWithoutStock: number; inventoryValue: Peso; lowStock: { id: string; name: string; sku: string; qty: string }[] }>;
+}
+export interface ReportMoney { count: number; total: Peso; net: Peso; cost: Peso; gross: Peso; charges: Peso; real: Peso }
+export interface ReportBreakdown {
+  byDay: ({ date: string } & ReportMoney)[];
+  byProduct: { productId: string; name: string; sku: string; qty: string; total: Peso; net: Peso; cost: Peso; gross: Peso }[];
+  bySeller: ({ userId: string; name: string } & ReportMoney)[];
+  byChannel: ({ name: string } & ReportMoney)[];
+  byPayment: { name: string; count: number; amount: Peso }[];
+  charges: { type: string; amount: Peso; count: number }[];
+  voided: { count: number; total: Peso };
 }
 export interface UserStore {
   getById(id: string): Promise<{ id: string; email: string; role: 'ADMINISTRADOR' | 'VENDEDOR'; banned: boolean } | null>;

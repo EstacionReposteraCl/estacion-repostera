@@ -17,6 +17,14 @@ export function createReportsService({ catalog, reports, now = () => new Date() 
       if (!/^\d{4}-\d{2}-\d{2}$/.test(range.from) || !/^\d{4}-\d{2}-\d{2}$/.test(range.to) || range.from > range.to) throw validation('Rango de fechas inválido.');
       return reports.financial(range, actor.branchId);      // ventas VOIDED no cuentan (lo garantiza el lector)
     },
+    /** Reporte completo del período para el ADMINISTRADOR: totales, desglose e inventario valorizado. */
+    async overview(actor: Actor | null, range: { from: string; to: string }) {
+      assertCan(actor, 'report.financial');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(range.from) || !/^\d{4}-\d{2}-\d{2}$/.test(range.to) || range.from > range.to) throw validation('Rango de fechas inválido.');
+      const [totals, breakdown, inventory] = await Promise.all([reports.financial(range, actor.branchId), reports.breakdown(range, actor.branchId), reports.inventorySnapshot(actor.branchId)]);
+      return { range, totals, breakdown, inventory };
+    },
+    async today(actor: Actor | null): Promise<string> { assertCan(actor, 'report.financial'); return businessDateOf(now(), (await catalog.businessSettings()).timezone); },
   };
 }
 export type ReportsService = ReturnType<typeof createReportsService>;

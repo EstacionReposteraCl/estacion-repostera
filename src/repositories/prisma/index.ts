@@ -359,7 +359,7 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     },
   };
 
-  const reports: ReportReader = {
+  const reports = {
     async sellerToday(userId, date) {
       const r = await client.sale.aggregate({ where: { createdById: userId, businessDate: dateOnly(date), status: 'COMPLETED' }, _count: { _all: true }, _sum: { total: true } });
       return { count: r._count._all, total: r._sum.total ?? 0 };
@@ -370,7 +370,48 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
       const s = r._sum;
       return { sales: r._count._all, netTotal: s.netTotal ?? 0, costOfGoodsSold: s.costOfGoodsSold ?? 0, grossProfit: s.grossProfit ?? 0, totalCharges: s.totalCharges ?? 0, realProfit: s.realProfit ?? 0 };
     },
-  };
+  } as ReportReader;
+
+  type Agg = { count: bigint; total: bigint | null; net: bigint | null; cost: bigint | null; gross: bigint | null; charges: bigint | null; real: bigint | null };
+  const money = (r: Agg) => ({ count: Number(r.count), total: Number(r.total ?? 0), net: Number(r.net ?? 0), cost: Number(r.cost ?? 0), gross: Number(r.gross ?? 0), charges: Number(r.charges ?? 0), real: Number(r.real ?? 0) });
+  const AGG = Prisma.sql`count(*) AS count, sum(s.total) AS total, sum(f."netTotal") AS net, sum(f."costOfGoodsSold") AS cost, sum(f."grossProfit") AS gross, sum(f."totalCharges") AS charges, sum(f."realProfit") AS real`;
+  Object.assign(reports, {
+    async breakdown(range: { from: string; to: string }, branchId: string) {
+      const W = Prisma.sql`s."branchId" = ${branchId} AND s.status = 'COMPLETED' AND s."businessDate" BETWEEN ${range.from}::date AND ${range.to}::date`;
+      const [byDay, byProduct, bySeller, byChannel, byPayment, charges, voided] = await Promise.all([
+        client.$queryRaw<(Agg & { d: Date })[]>`SELECT s."businessDate" AS d, ${AGG} FROM sales s JOIN sale_financials f ON f."saleId" = s.id WHERE ${W} GROUP BY 1 ORDER BY 1`,
+        client.$queryRaw<{ id: string; name: string; sku: string; qty: string; total: bigint; net: bigint; cost: bigint }[]>`
+          SELECT si."productId" AS id, max(si."nameSnapshot") AS name, max(coalesce(si."skuSnapshot", '')) AS sku, sum(si.quantity)::text AS qty, sum(si."lineTotal") AS total, sum(si."lineNet") AS net, coalesce(sum(c."lineCost"), 0) AS cost
+          FROM sale_items si JOIN sales s ON s.id = si."saleId" LEFT JOIN sale_item_costs c ON c."saleItemId" = si.id WHERE ${W} GROUP BY 1 ORDER BY sum(si."lineNet") - coalesce(sum(c."lineCost"), 0) DESC LIMIT 200`,
+        client.$queryRaw<(Agg & { id: string; name: string })[]>`SELECT s."createdById" AS id, max(u.name) AS name, ${AGG} FROM sales s JOIN sale_financials f ON f."saleId" = s.id JOIN users u ON u.id = s."createdById" WHERE ${W} GROUP BY 1 ORDER BY sum(s.total) DESC`,
+        client.$queryRaw<(Agg & { name: string })[]>`SELECT max(ch.name) AS name, ${AGG} FROM sales s JOIN sale_financials f ON f."saleId" = s.id JOIN sale_channels ch ON ch.id = s."channelId" WHERE ${W} GROUP BY s."channelId" ORDER BY sum(s.total) DESC`,
+        client.$queryRaw<{ name: string; count: bigint; amount: bigint }[]>`SELECT max(pm.name) AS name, count(*) AS count, sum(sp.amount) AS amount FROM sale_payments sp JOIN sales s ON s.id = sp."saleId" JOIN payment_methods pm ON pm.id = sp."paymentMethodId" WHERE ${W} GROUP BY sp."paymentMethodId" ORDER BY 3 DESC`,
+        client.$queryRaw<{ type: string; amount: bigint; count: bigint }[]>`SELECT c.type::text AS type, sum(c.amount) AS amount, count(*) AS count FROM sale_charges c JOIN sales s ON s.id = c."saleId" WHERE ${W} AND c."voidedAt" IS NULL GROUP BY 1 ORDER BY 2 DESC`,
+        client.$queryRaw<{ count: bigint; total: bigint | null }[]>`SELECT count(*) AS count, sum(s.total) AS total FROM sales s WHERE s."branchId" = ${branchId} AND s.status = 'VOIDED' AND s."businessDate" BETWEEN ${range.from}::date AND ${range.to}::date`,
+      ]);
+      return {
+        byDay: byDay.map((r) => ({ date: ymd(r.d), ...money(r) })),
+        byProduct: byProduct.map((r) => ({ productId: r.id, name: r.name, sku: r.sku, qty: formatQuantity(M(r.qty)), total: Number(r.total), net: Number(r.net), cost: Number(r.cost), gross: Number(r.net) - Number(r.cost) })),
+        bySeller: bySeller.map((r) => ({ userId: r.id, name: r.name, ...money(r) })),
+        byChannel: byChannel.map((r) => ({ name: r.name, ...money(r) })),
+        byPayment: byPayment.map((r) => ({ name: r.name, count: Number(r.count), amount: Number(r.amount) })),
+        charges: charges.map((r) => ({ type: r.type, amount: Number(r.amount), count: Number(r.count) })),
+        voided: { count: Number(voided[0]?.count ?? 0), total: Number(voided[0]?.total ?? 0) },
+      };
+    },
+    async inventorySnapshot(branchId: string) {
+      const [agg, low] = await Promise.all([
+        client.$queryRaw<{ with_stock: bigint; without_stock: bigint; value: bigint | null }[]>`
+          SELECT count(*) FILTER (WHERE coalesce(sl.quantity, 0) > 0) AS with_stock, count(*) FILTER (WHERE coalesce(sl.quantity, 0) = 0) AS without_stock, coalesce(sum(pc."inventoryValue"), 0) AS value
+          FROM products p LEFT JOIN stock_levels sl ON sl."productId" = p.id AND sl."branchId" = ${branchId} LEFT JOIN product_costs pc ON pc."productId" = p.id AND pc."branchId" = ${branchId}
+          WHERE p."isActive" AND p.kind = 'GOODS'`,
+        client.$queryRaw<{ id: string; name: string; sku: string; qty: string }[]>`
+          SELECT p.id, p.name, p.sku, sl.quantity::text AS qty FROM products p JOIN stock_levels sl ON sl."productId" = p.id AND sl."branchId" = ${branchId}
+          WHERE p."isActive" AND p.kind = 'GOODS' AND sl.quantity > 0 AND sl.quantity <= greatest(sl."minQuantity", 2) ORDER BY sl.quantity, p.name LIMIT 30`,
+      ]);
+      return { productsWithStock: Number(agg[0].with_stock), productsWithoutStock: Number(agg[0].without_stock), inventoryValue: Number(agg[0].value), lowStock: low.map((l) => ({ ...l, qty: formatQuantity(M(l.qty)) })) };
+    },
+  });
 
   const users: UserStore = {
     async getById(id) { return client.user.findUnique({ where: { id }, select: { id: true, email: true, role: true, banned: true } }); },

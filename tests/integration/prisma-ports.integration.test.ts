@@ -190,3 +190,19 @@ test('compras (pantallas): proveedor con RUT único, listado con totales, detall
   const after = await svc.products.getAdmin(admin, p2.id); assert.equal(after.stock, '3.000'); assert.equal(after.inventoryValue, 4500);
   assert.deepEqual(await svc.inventory.reconcile(admin, p2.id), { ok: true, errors: [] });
 });
+
+test('reportes: el desglose por día, vendedor, canal y producto cuadra con los totales; anuladas fuera; solo ADMINISTRADOR', async () => {
+  const d = await svc.reports.today(admin);
+  const r = await svc.reports.overview(admin, { from: d, to: d });
+  const sum = (xs: { net: number }[]) => xs.reduce((a, x) => a + x.net, 0);
+  assert.ok(r.totals.sales > 0);
+  assert.equal(sum(r.breakdown.byDay), r.totals.netTotal); assert.equal(sum(r.breakdown.bySeller), r.totals.netTotal); assert.equal(sum(r.breakdown.byChannel), r.totals.netTotal);
+  assert.equal(sum(r.breakdown.byProduct), r.totals.netTotal, 'Σ neto por producto = neto del período');
+  assert.equal(r.breakdown.byProduct.reduce((a, x) => a + x.cost, 0), r.totals.costOfGoodsSold, 'Σ costo por producto = costo vendido');
+  assert.equal(r.breakdown.charges.reduce((a, x) => a + x.amount, 0), r.totals.totalCharges, 'Σ cargos vigentes = cargos del período');
+  const paid = r.breakdown.byPayment.reduce((a, x) => a + x.amount, 0); const tot = r.breakdown.byDay.reduce((a, x) => a + x.total, 0); assert.equal(paid, tot, 'Σ pagos = Σ totales');
+  assert.ok(r.breakdown.voided.count >= 1, 'hay anuladas y no se suman');
+  assert.ok(r.inventory.inventoryValue > 0 && r.inventory.productsWithStock > 0);
+  assert.equal(await code(svc.reports.overview(seller, { from: d, to: d })), 'FORBIDDEN');
+  assert.equal(await code(svc.reports.overview(admin, { from: d, to: '2000-01-01' })), 'VALIDATION');
+});
