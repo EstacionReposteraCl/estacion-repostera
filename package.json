@@ -1,0 +1,56 @@
+{
+  "name": "estacion-repostera",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Estación Repostera — primera versión funcional (Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16).",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:unit": "node --experimental-strip-types --test \"tests/unit/**/*.test.ts\"",
+    "typecheck:core": "tsc -p tsconfig.core.json",
+    "check:schema": "python3 scripts/check-schema.py prisma/schema.prisma docs/reglas-y-pruebas.md",
+    "check:imports": "node --experimental-strip-types scripts/check-imports.mjs",
+    "test:sql-rules": "python3 tests/integration/sql/run.py",
+    "setup:derived-db": "scripts/setup-derived-db.sh",
+    "verify:offline": "npm run test:unit && npm run typecheck:core && npm run check:schema && npm run check:imports",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:seed": "prisma db seed",
+    "setup": "npm run db:generate && npm run db:migrate"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "better-auth": "^1.7.7",
+    "dotenv": "^18.0.6",
+    "next": "16.4.0",
+    "pg": "^8.23.1",
+    "prisma": "^7.10.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^3.25.76"
+  },
+  "browserslist": [
+    "chrome 109",
+    "edge 109",
+    "firefox 111",
+    "safari 16.4"
+  ]
+}

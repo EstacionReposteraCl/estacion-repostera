@@ -1,0 +1,916 @@
+// =============================================================================
+// ESTACIÓN REPOSTERA · schema.prisma · APROBADO v0.5 (solo para revisión)
+// Prisma 7: generador "prisma-client"; el datasource NO lleva url
+// (la conexión va en prisma.config.ts y en el adaptador del cliente).
+//
+// REGLAS DE DISEÑO
+//  - Todo monto en dinero es Int en pesos chilenos, sin decimales.
+//  - Las cantidades de stock usan 3 decimales y SIEMPRE están en la unidad base
+//    del producto (KG, L, UN...). Lo que el usuario tipea ("80 g") se convierte.
+//  - El costo se guarda como VALOR DE INVENTARIO en pesos enteros
+//    (ProductCost.inventoryValue). El costo promedio = valor ÷ cantidad se
+//    deriva al leer; nunca se escribe a mano. Así no hay decimales monetarios
+//    ni errores de redondeo acumulados.
+//  - Precio de venta SIEMPRE con IVA incluido. Neto e IVA los calcula el servidor.
+//  - Nada de negocio se borra: se anula o se archiva. Relaciones con Restrict.
+//  - TABLAS SENSIBLES (solo ADMINISTRADOR las lee): ProductCost, StockMovement,
+//    SaleItemCost, SaleFinancial, SaleCharge, SaleReturn, SaleReturnItem,
+//    FeeRule, AuditLog.
+//  - Fechas en UTC. "businessDate" = día calendario en la zona horaria del negocio.
+//  - Presentación y producto SIEMPRE coherentes: clave foránea compuesta
+//    (presentationId, presentationProductId) -> (id, productId) + CHECK
+//    presentationProductId = productId. Ver reglas SQL que acompañan al esquema.
+//  - Un producto SERVICE nunca tiene StockLevel, ProductCost, StockMovement ni SaleItemCost.
+//  - Invariante de inventario: quantity >= 0, inventoryValue >= 0 y
+//    (quantity = 0  =>  inventoryValue = 0). La última salida consume TODO el valor restante.
+//  - Los costos unitarios NO se guardan: costo unitario = valor ÷ cantidad (se deriva al leer).
+//  - TODA línea de venta pertenece a un Product (no hay ítems libres en v1). Envío, Despacho y
+//    otros servicios son productos de tipo SERVICE.
+//  - IVA incluido: neto = redondeo(total ÷ 1,19) e IVA = total − neto, calculado sobre el TOTAL
+//    afecto de la venta; las líneas se reparten por mayor resto para que Σ líneas = total exacto.
+//  - Resultado financiero de la venta CONGELADO en SaleFinancial. Un cargo posterior (solo
+//    ADMINISTRADOR) agrega una fila a SaleCharge y recalcula explícitamente totalCharges y
+//    realProfit, con AuditLog. El costo vendido (SaleItemCost, costOfGoodsSold) jamás cambia.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum Role {
+  ADMINISTRADOR
+  VENDEDOR
+}
+
+enum VatTreatment {
+  AFECTO
+  EXENTO
+}
+
+enum ProductKind {
+  GOODS   // mercadería: controla stock
+  SERVICE // Envío, Despacho, otros servicios: sin stock, sin costo de inventario, sin movimientos
+}
+
+enum UnitDimension {
+  COUNT
+  MASS
+  VOLUME
+}
+
+enum PriceBasis {
+  PER_BASE_UNIT   // precio por KG / L / UN; total = redondeo(cantidad base × precio)
+  PER_PRESENTATION // precio fijo por envase; total = envases × precio
+}
+
+enum StockMovementType {
+  OPENING_BALANCE
+  PURCHASE
+  PURCHASE_VOID
+  SALE
+  SALE_VOID
+  CUSTOMER_RETURN
+  ADJUSTMENT      // conteo físico
+  WASTE           // merma
+  CORRECTION      // corrección de un error de cantidad
+  COST_CORRECTION // cantidad 0: corrige el valor del inventario (excepcional)
+}
+
+enum WasteReason {
+  EXPIRED
+  DAMAGED
+  SPILLAGE
+  THEFT_LOSS
+  OTHER
+}
+
+enum SaleStatus {
+  COMPLETED
+  VOIDED
+}
+
+enum SaleDocumentType {
+  INTERNAL_RECEIPT    // comprobante interno (v1)
+  BOLETA_ELECTRONICA  // reservado
+  FACTURA_ELECTRONICA // reservado
+}
+
+enum ReceivedDocType {
+  FACTURA
+  BOLETA
+  OTRO
+}
+
+enum DocStatus {
+  CONFIRMED
+  VOIDED
+}
+
+enum FeeVatTreatment {
+  UNDEFINED       // pendiente de definir con el contador
+  RECOVERABLE
+  NOT_RECOVERABLE
+}
+
+enum ChargeType {
+  PAYMENT_FEE        // comisión del medio de pago
+  CHANNEL_COMMISSION // comisión porcentual del canal (Mercado Libre, Rappi...)
+  CHANNEL_FIXED_FEE  // cargo fijo del canal
+  SHIPPING_COST      // costo de envío asumido por el negocio
+  OTHER
+}
+
+enum ChargeSource {
+  RULE   // calculado con la regla configurada
+  MANUAL // monto ingresado por el administrador
+}
+
+enum PurchaseVoidMode {
+  EXACT    // revierte exactamente el estado anterior (solo si la compra fue el último movimiento)
+  ADJUSTED // procedimiento explícito del administrador; registra la diferencia de valor
+}
+
+enum SequenceType {
+  SALE
+}
+
+// ----------------------------------------------------------------------------
+// AUTENTICACIÓN (núcleo compatible con Better Auth + plugin admin)
+// Al implementar: regenerar con el CLI de Better Auth y comparar con este bloque.
+// ----------------------------------------------------------------------------
+
+model User {
+  id                 String    @id
+  name               String
+  email              String    @unique
+  emailVerified      Boolean   @default(false)
+  image              String?
+  role               Role      @default(VENDEDOR)
+  banned             Boolean   @default(false) // usuario desactivado
+  banReason          String?
+  banExpires         DateTime?
+  mustChangePassword Boolean   @default(true)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  sessions         Session[]
+  accounts         Account[]
+  salesCreated     Sale[]          @relation("SaleCreatedBy")
+  salesVoided      Sale[]          @relation("SaleVoidedBy")
+  chargesCreated   SaleCharge[]    @relation("ChargeCreatedBy")
+  chargesVoided    SaleCharge[]    @relation("ChargeVoidedBy")
+  financialsRecalculated SaleFinancial[] @relation("FinancialRecalculatedBy")
+  returnsCreated   SaleReturn[]    @relation("ReturnCreatedBy")
+  purchasesCreated Purchase[]      @relation("PurchaseCreatedBy")
+  purchasesVoided  Purchase[]      @relation("PurchaseVoidedBy")
+  expensesCreated  Expense[]       @relation("ExpenseCreatedBy")
+  expensesVoided   Expense[]       @relation("ExpenseVoidedBy")
+  stockMovements   StockMovement[]
+  auditLogs        AuditLog[]
+
+  @@map("users")
+}
+
+model Session {
+  id             String   @id
+  expiresAt      DateTime
+  token          String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ipAddress      String?
+  userAgent      String?
+  userId         String
+  impersonatedBy String? // plugin admin; se recomienda dejarlo deshabilitado
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String // "credential" para correo + contraseña
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String? // hash, nunca texto plano
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+model RateLimit {
+  id          String @id
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rate_limits")
+}
+
+// ----------------------------------------------------------------------------
+// NEGOCIO Y SUCURSALES
+// ----------------------------------------------------------------------------
+
+model BusinessSettings {
+  id            String   @id @default("singleton")
+  legalName     String // nombre del negocio (sale en el comprobante)
+  taxId         String? // RUT
+  address       String?
+  phone         String?
+  email         String?
+  receiptFooter String?
+  timezone      String   @default("America/Santiago")
+  currency      String   @default("CLP")
+  vatRate       Decimal  @default(19.00) @db.Decimal(5, 2)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("business_settings")
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  address   String?
+  isMain    Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockLevels    StockLevel[]
+  productCosts   ProductCost[]
+  stockMovements StockMovement[]
+  sales          Sale[]
+  saleReturns    SaleReturn[]
+  purchases      Purchase[]
+  expenses       Expense[]
+  sequences      DocumentSequence[]
+
+  @@map("branches")
+}
+
+// Correlativo de comprobantes por sucursal; se incrementa dentro de la transacción de venta.
+model DocumentSequence {
+  id         String       @id @default(cuid())
+  branchId   String
+  type       SequenceType
+  prefix     String? // ej. "C-"
+  nextNumber Int          @default(1)
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, type])
+  @@map("document_sequences")
+}
+
+// ----------------------------------------------------------------------------
+// CATÁLOGO
+// ----------------------------------------------------------------------------
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@map("categories")
+}
+
+// Conversión: cantidadEnUnidadBase = cantidad × factorToBase(origen) ÷ factorToBase(base).
+// Solo entre unidades de la misma dimensión (G=1, KG=1000, ML=1, L=1000, UN=1).
+model Unit {
+  id           String        @id @default(cuid())
+  code         String        @unique // UN, G, KG, ML, L
+  name         String
+  symbol       String
+  dimension    UnitDimension
+  factorToBase Decimal       @default(1) @db.Decimal(12, 6)
+  maxDecimals  Int           @default(0)
+  isActive     Boolean       @default(true)
+
+  products        Product[] @relation("ProductUnit")
+  contentProducts Product[] @relation("ProductContentUnit")
+
+  @@map("units")
+}
+
+model Product {
+  id            String       @id @default(cuid())
+  sku           String       @unique
+  name          String
+  brand         String? // texto libre
+  categoryId    String?
+  kind          ProductKind  @default(GOODS)
+  unitId        String // UNIDAD BASE: en ella se guarda el stock y se fija el precio. Inmutable si ya hay movimientos.
+  contentAmount Decimal?     @db.Decimal(12, 3) // contenido informativo del envase
+  contentUnitId String?
+  vatTreatment  VatTreatment @default(AFECTO)
+  salePrice     Int // pesos CON IVA por unidad base (ej. $16.000 por KG; Envío: $2.500 por unidad)
+  isActive      Boolean      @default(true)
+  archivedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  category      Category?             @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit          Unit                  @relation("ProductUnit", fields: [unitId], references: [id], onDelete: Restrict)
+  contentUnit   Unit?                 @relation("ProductContentUnit", fields: [contentUnitId], references: [id], onDelete: Restrict)
+  presentations ProductPresentation[]
+  barcodes      ProductBarcode[]
+  stockLevels   StockLevel[]
+  costs         ProductCost[]
+  movements     StockMovement[]
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
+
+  @@index([name])
+  @@index([categoryId])
+  @@index([isActive])
+  @@map("products")
+}
+
+// Presentaciones de UN MISMO producto (Belcolade 1 kg, 500 g, 200 g).
+// No tienen stock propio: al vender 1 presentación se descuenta baseQuantity del producto.
+model ProductPresentation {
+  id           String   @id @default(cuid())
+  productId    String
+  name         String // "Bolsa 500 g"
+  sku          String?  @unique
+  baseQuantity Decimal  @db.Decimal(14, 3) // en unidad base del producto (0,500 KG). CHECK (> 0)
+  salePrice    Int? // con IVA; null = proporcional: redondeo(baseQuantity × precio del producto)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product       Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  barcodes      ProductBarcode[]
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
+
+  @@unique([productId, name])
+  @@unique([id, productId]) // destino de las claves foráneas compuestas (id, productId)
+  @@map("product_presentations")
+}
+
+// Un código escaneado identifica el producto y, si corresponde, su presentación.
+model ProductBarcode {
+  id                    String   @id @default(cuid())
+  productId             String
+  presentationId        String?
+  presentationProductId String? // = productId cuando hay presentación (CHECK); lo asigna el servicio, nunca el usuario
+  code                  String   @unique
+  isPrimary             Boolean  @default(false)
+  createdAt             DateTime @default(now())
+
+  product      Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  presentation ProductPresentation? @relation(fields: [presentationId, presentationProductId], references: [id, productId], onDelete: Restrict)
+
+  @@index([productId])
+  @@index([presentationId])
+  @@map("product_barcodes")
+}
+
+// ----------------------------------------------------------------------------
+// INVENTARIO Y COSTOS (por sucursal; solo para productos GOODS)
+// ----------------------------------------------------------------------------
+
+model StockLevel {
+  id          String   @id @default(cuid())
+  branchId    String
+  productId   String
+  quantity    Decimal  @default(0) @db.Decimal(14, 3) // unidad base. CHECK (quantity >= 0) en SQL
+  minQuantity Decimal  @default(0) @db.Decimal(14, 3)
+  movementSeq Int      @default(0) // n° del último StockMovement aplicado (se incrementa en la misma sentencia)
+  updatedAt   DateTime @updatedAt
+
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, productId])
+  @@index([productId])
+  @@map("stock_levels")
+}
+
+// SENSIBLE. Valor neto del stock en pesos. Cambia solo por compras, ventas, mermas,
+// ajustes, devoluciones y corrección de costo. Costo promedio = inventoryValue ÷ cantidad.
+model ProductCost {
+  id             String   @id @default(cuid())
+  branchId       String
+  productId      String
+  inventoryValue Int      @default(0) // CHECK (>= 0) y = 0 si el stock es 0
+  updatedAt      DateTime @updatedAt
+
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, productId])
+  @@index([productId])
+  @@map("product_costs")
+}
+
+// SENSIBLE y de solo agregar: nunca se edita ni se borra.
+model StockMovement {
+  id             String            @id @default(cuid())
+  branchId       String
+  productId      String
+  seq            Int // correlativo por (sucursal, producto); lo asigna el servicio con el stock bloqueado
+  type           StockMovementType
+  quantity       Decimal           @db.Decimal(14, 3) // con signo, en unidad base
+  quantityBefore Decimal           @db.Decimal(14, 3)
+  quantityAfter  Decimal           @db.Decimal(14, 3) // = quantityBefore + quantity
+  valueChange    Int // con signo, en pesos (efecto sobre ProductCost.inventoryValue)
+  valueAfter     Int
+  wasteReason    WasteReason?
+  note           String? // obligatorio en COST_CORRECTION, ADJUSTMENT, WASTE y CORRECTION
+  groupId        String? // agrupa un conteo físico de varios productos
+  saleItemId     String? // SALE, SALE_VOID
+  purchaseItemId String? // PURCHASE, PURCHASE_VOID
+  returnItemId   String? // CUSTOMER_RETURN (o WASTE si no vuelve al stock)
+  createdById    String
+  createdAt      DateTime          @default(now())
+
+  branch       Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  saleItem     SaleItem?       @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+  purchaseItem PurchaseItem?   @relation(fields: [purchaseItemId], references: [id], onDelete: Restrict)
+  returnItem   SaleReturnItem? @relation(fields: [returnItemId], references: [id], onDelete: Restrict)
+  createdBy    User            @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, productId, seq]) // dos escritores no pueden aplicar el mismo paso
+  @@unique([saleItemId, type]) // una línea no se vende ni se anula dos veces
+  @@unique([purchaseItemId, type])
+  @@unique([returnItemId, type])
+  @@index([productId, createdAt])
+  @@index([branchId, createdAt])
+  @@index([type, createdAt])
+  @@index([groupId])
+  @@map("stock_movements")
+}
+
+// ----------------------------------------------------------------------------
+// PROVEEDORES, COMPRAS Y GASTOS
+// ----------------------------------------------------------------------------
+
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  taxId       String?  @unique // RUT
+  contactName String?
+  phone       String?
+  email       String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchases Purchase[]
+  expenses  Expense[]
+
+  @@index([name])
+  @@map("suppliers")
+}
+
+// Una compra confirmada no se edita ni se borra: se anula (modo EXACT o ADJUSTED, ver reglas).
+model Purchase {
+  id               String          @id @default(cuid())
+  branchId         String
+  supplierId       String?
+  docType          ReceivedDocType
+  docNumber        String?
+  docDate          DateTime        @db.Date
+  status           DocStatus       @default(CONFIRMED)
+  pricesIncludeVat Boolean         @default(false) // factura: normalmente neto; boleta: con IVA
+  vatRecoverable   Boolean         @default(true) // true en factura; false en boleta
+  netAmount        Int
+  vatAmount        Int
+  totalAmount      Int // pagado
+  note             String?
+  createdById      String
+  createdAt        DateTime        @default(now())
+  voidedAt         DateTime?
+  voidedById       String?
+  voidReason       String?
+  voidMode         PurchaseVoidMode?
+  voidVariance     Int? // costo del documento − valor realmente retirado del inventario (solo modo ADJUSTED)
+  documentKey      String? @unique // anti-duplicado: "<proveedor o ->|<tipo>|<n° normalizado>"; lo calcula el servicio; NULL si no hay n° o si la compra se anula
+
+  branch    Branch         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supplier  Supplier?      @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy User           @relation("PurchaseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedBy  User?          @relation("PurchaseVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  items     PurchaseItem[]
+
+  @@index([supplierId, docType, docNumber]) // búsqueda; la unicidad la da documentKey (la unicidad compuesta no sirve con supplierId o docNumber nulos)
+  @@index([branchId, docDate])
+  @@index([status])
+  @@map("purchases")
+}
+
+// La compra puede ingresarse en una presentación ("10 bolsas de 1 kg"); se guarda en unidad base.
+// El costo unitario NO se guarda: = costBasis ÷ quantity. Se ingresa el costo unitario O el
+// total de la línea y el servidor calcula el otro; el inventario suma exactamente costBasis.
+// Ej.: 10 kg, neto $68.780 -> $6.878/kg y el valor del inventario sube $68.780.
+model PurchaseItem {
+  id                    String  @id @default(cuid())
+  purchaseId            String
+  productId             String
+  presentationId        String?
+  presentationProductId String? // = productId cuando hay presentación (CHECK)
+  nameSnapshot          String
+  enteredQuantity       Decimal @db.Decimal(14, 3) // lo que se tipeó ("10 bolsas")
+  enteredUnit           String // símbolo o nombre de la presentación
+  quantity              Decimal @db.Decimal(14, 3) // en unidad base: lo que entra al stock (> 0)
+  lineNet               Int
+  lineVat               Int
+  lineTotal             Int // pagado: lineNet + lineVat
+  costBasis             Int // lo que suma al valor del inventario (boleta: lineTotal; factura: lineNet)
+
+  purchase     Purchase             @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  product      Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  presentation ProductPresentation? @relation(fields: [presentationId, presentationProductId], references: [id, productId], onDelete: Restrict)
+  movements    StockMovement[]
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@index([presentationId])
+  @@map("purchase_items")
+}
+
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  expenses Expense[]
+
+  @@map("expense_categories")
+}
+
+model Expense {
+  id             String           @id @default(cuid())
+  branchId       String
+  categoryId     String
+  supplierId     String?
+  description    String
+  docType        ReceivedDocType?
+  docNumber      String?
+  expenseDate    DateTime         @db.Date
+  status         DocStatus        @default(CONFIRMED)
+  vatRecoverable Boolean          @default(false)
+  netAmount      Int
+  vatAmount      Int
+  totalAmount    Int
+  createdById    String
+  createdAt      DateTime         @default(now())
+  voidedAt       DateTime?
+  voidedById     String?
+  voidReason     String?
+
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  category  ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplier  Supplier?       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy User            @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedBy  User?           @relation("ExpenseVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([branchId, expenseDate])
+  @@index([categoryId])
+  @@index([status])
+  @@map("expenses")
+}
+
+// ----------------------------------------------------------------------------
+// CANALES, MEDIOS DE PAGO Y REGLAS DE COMISIÓN
+// ----------------------------------------------------------------------------
+
+model SaleChannel {
+  id        String  @id @default(cuid())
+  code      String  @unique // LOCAL, WHATSAPP, INSTAGRAM, MERCADO_LIBRE, RAPPI
+  name      String
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  sales   Sale[]
+  feeRule FeeRule?
+
+  @@map("sale_channels")
+}
+
+model PaymentMethod {
+  id        String  @id @default(cuid())
+  code      String  @unique // CASH, DEBIT, CREDIT, TRANSFER, MERCADO_PAGO
+  name      String
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  payments SalePayment[]
+  feeRule  FeeRule?
+
+  @@map("payment_methods")
+}
+
+// SENSIBLE. Una FeeRule pertenece a UN solo destino: un medio de pago O un canal (CHECK en SQL).
+// Eso NO hace que se excluyan entre sí: al cerrar una venta se aplican TODAS las reglas que correspondan,
+// cada una genera su propia fila en SaleCharge y los cargos se SUMAN. Ej.: venta de Mercado Libre pagada
+// con tarjeta => CHANNEL_COMMISSION (regla del canal) + PAYMENT_FEE (regla del medio de pago) + otros cargos.
+// El IVA de la comisión queda sin definir hasta hablar con el contador.
+model FeeRule {
+  id              String          @id @default(cuid())
+  paymentMethodId String?         @unique
+  channelId       String?         @unique
+  percent         Decimal         @default(0) @db.Decimal(6, 3)
+  fixedAmount     Int             @default(0)
+  isManualPerSale Boolean         @default(false)
+  vatTreatment    FeeVatTreatment @default(UNDEFINED)
+  isActive        Boolean         @default(true)
+  updatedAt       DateTime        @updatedAt
+
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  channel       SaleChannel?   @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@map("fee_rules")
+}
+
+// ----------------------------------------------------------------------------
+// VENTAS
+// ----------------------------------------------------------------------------
+
+model Sale {
+  id             String           @id @default(cuid())
+  branchId       String
+  folio          Int // n° de comprobante (prefijo en DocumentSequence)
+  channelId      String
+  status         SaleStatus       @default(COMPLETED)
+  documentType   SaleDocumentType @default(INTERNAL_RECEIPT)
+  soldAt         DateTime         @default(now())
+  businessDate   DateTime         @db.Date
+  netTotal       Int
+  vatTotal       Int
+  total          Int // = Σ lineTotal. netTotal = redondeo(total afecto ÷ 1,19) + total exento; vatTotal = total − netTotal (CHECK en SQL)
+  issuerSnapshot Json? // nombre, RUT y dirección del negocio al vender (reimpresiones idénticas)
+  externalRef    String? // n° de pedido en Mercado Libre / Rappi
+  note           String?
+  idempotencyKey String           @unique
+  createdById    String
+  createdAt      DateTime         @default(now())
+  voidedAt       DateTime?
+  voidedById     String?
+  voidReason     String? // obligatorio si está anulada (CHECK en SQL)
+
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  channel   SaleChannel     @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  createdBy User            @relation("SaleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedBy  User?           @relation("SaleVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  items     SaleItem[]
+  payments  SalePayment[]
+  charges   SaleCharge[]
+  financial SaleFinancial?
+  returns   SaleReturn[]
+
+  @@unique([branchId, folio])
+  @@unique([channelId, externalRef])
+  @@index([branchId, businessDate])
+  @@index([createdById, businessDate]) // "mis ventas de hoy" del vendedor
+  @@index([status])
+  @@map("sales")
+}
+
+// Ejemplo: Sprinkles, base KG, $16.000/KG, venta de 80 g ->
+//   enteredQuantity 80, enteredUnit "g", quantity 0,080, unitPrice 16000,
+//   priceBasis PER_BASE_UNIT, lineTotal = redondeo(0,080 × 16000) = 1280.
+// Ejemplo: 2 bolsas de 500 g ->
+//   enteredQuantity 2 (ENTERO), presentationBaseQuantity 0,500, quantity 1,000,
+//   priceBasis PER_PRESENTATION, lineTotal = 2 × unitPrice.
+// Un SERVICE (Envío, Despacho...) se vende como cualquier producto pero no descuenta stock ni genera
+// SaleItemCost ni StockMovement.
+model SaleItem {
+  id                       String       @id @default(cuid())
+  saleId                   String
+  lineNumber               Int
+  productId                String // SIEMPRE un Product (los servicios son Product SERVICE)
+  presentationId           String?
+  presentationProductId    String? // = productId cuando hay presentación (CHECK)
+  presentationBaseQuantity Decimal?     @db.Decimal(14, 3) // base por envase al vender (solo PER_PRESENTATION)
+  skuSnapshot              String?
+  nameSnapshot             String
+  baseUnitSnapshot         String // símbolo de la unidad base (KG)
+  enteredQuantity          Decimal      @db.Decimal(14, 3) // PER_PRESENTATION: entero >= 1 (CHECK)
+  enteredUnit              String // "g", "kg", "Bolsa 500 g"...
+  quantity                 Decimal      @db.Decimal(14, 3) // unidad base; PER_PRESENTATION: = enteredQuantity × presentationBaseQuantity
+  priceBasis               PriceBasis
+  unitPrice                Int // con IVA, por unidad base o por presentación, vigente al vender
+  isManualPrice            Boolean      @default(false) // precio distinto al del catálogo (solo ADMINISTRADOR; el VENDEDOR nunca)
+  vatTreatment             VatTreatment
+  vatRate                  Decimal      @db.Decimal(5, 2)
+  lineTotal                Int // con IVA. Σ lineTotal = Sale.total
+  lineNet                  Int // repartido por mayor resto: Σ lineNet = Sale.netTotal exacto (cada línea difiere a lo más $1 del redondeo individual)
+  lineVat                  Int // lineNet + lineVat = lineTotal; Σ lineVat = Sale.vatTotal
+
+  sale         Sale                 @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  product      Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  presentation ProductPresentation? @relation(fields: [presentationId, presentationProductId], references: [id, productId], onDelete: Restrict)
+  cost         SaleItemCost?
+  returnItems  SaleReturnItem[]
+  movements    StockMovement[]
+
+  @@unique([saleId, lineNumber])
+  @@index([productId])
+  @@index([presentationId])
+  @@map("sale_items")
+}
+
+// SENSIBLE. Costo congelado al vender (valor del inventario consumido). Nunca se recalcula.
+model SaleItemCost {
+  id         String @id @default(cuid())
+  saleItemId String @unique
+  lineCost   Int
+
+  saleItem SaleItem @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+
+  @@map("sale_item_costs")
+}
+
+model SalePayment {
+  id              String   @id @default(cuid())
+  saleId          String
+  paymentMethodId String
+  amount          Int
+  reference       String?
+  createdAt       DateTime @default(now())
+
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  charges       SaleCharge[]
+
+  @@index([saleId])
+  @@index([paymentMethodId])
+  @@map("sale_payments")
+}
+
+// SENSIBLE y de solo agregar. Costos asociados a una venta: comisiones, cargo fijo, envío asumido, otros.
+// Se crean al cerrar la venta (por regla, addedAfterClose = false) o después (ej. al llegar el detalle de
+// Mercado Libre o Rappi): solo ADMINISTRADOR, con usuario y fecha, y recalculan SaleFinancial + AuditLog.
+// Nunca se editan ni se borran; un cargo equivocado se anula con motivo (también recalcula y se audita).
+model SaleCharge {
+  id             String          @id @default(cuid())
+  saleId         String
+  paymentId      String? // pago que originó la comisión del medio de pago
+  type           ChargeType
+  description    String?
+  baseAmount     Int? // monto sobre el que se calculó el porcentaje
+  percentApplied Decimal?        @db.Decimal(6, 3)
+  fixedApplied   Int?
+  amount         Int // costo en pesos (>= 0)
+  source         ChargeSource    @default(RULE)
+  addedAfterClose Boolean        @default(false) // true = cargo posterior al cierre de la venta: solo ADMINISTRADOR (lo verifica un trigger)
+  vatTreatment   FeeVatTreatment @default(UNDEFINED)
+  createdById    String
+  createdAt      DateTime        @default(now())
+  voidedAt       DateTime?
+  voidedById     String?
+  voidReason     String?
+
+  sale      Sale         @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  payment   SalePayment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  createdBy User         @relation("ChargeCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedBy  User?        @relation("ChargeVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([type])
+  @@map("sale_charges")
+}
+
+// SENSIBLE. Resultado financiero de la venta:
+//   INMUTABLES (nunca cambian, ni siquiera por un cargo posterior): netTotal, costOfGoodsSold, grossProfit.
+//   MODIFICABLES solo por una acción administrativa auditada (ADMINISTRADOR + AuditLog): totalCharges, realProfit.
+// Un cargo posterior jamás altera el costo histórico de lo vendido ni grossProfit.
+//   grossProfit = netTotal − costOfGoodsSold                    (no cambia jamás)
+//   realProfit  = grossProfit − totalCharges                    (CHECK; se recalcula solo con acción auditada)
+//   totalCharges = Σ SaleCharge.amount no anulados              (lo vigila un trigger diferido)
+// Al cerrar la venta se guardan los tres con los cargos del momento. Si luego llega un cargo, solo
+// ADMINISTRADOR lo agrega y el servicio recalcula EXPLÍCITAMENTE totalCharges y realProfit
+// (y deja AuditLog). netTotal, costOfGoodsSold y grossProfit quedan inmutables (trigger).
+model SaleFinancial {
+  id                String    @id @default(cuid())
+  saleId            String    @unique
+  netTotal          Int // copia congelada de Sale.netTotal (permite el CHECK en la misma fila)
+  costOfGoodsSold   Int
+  grossProfit       Int // = netTotal − costOfGoodsSold
+  totalCharges      Int       @default(0)
+  realProfit        Int // = grossProfit − totalCharges (puede ser negativo)
+  createdAt         DateTime  @default(now())
+  recalculatedAt    DateTime? // última vez que un cargo posterior (o su anulación) recalculó el resultado
+  recalculatedById  String?
+
+  sale           Sale  @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  recalculatedBy User? @relation("FinancialRecalculatedBy", fields: [recalculatedById], references: [id], onDelete: Restrict)
+
+  @@map("sale_financials")
+}
+
+// Devoluciones: exclusivas del ADMINISTRADOR. SENSIBLE (incluye costo recuperado).
+model SaleReturn {
+  id            String   @id @default(cuid())
+  saleId        String
+  branchId      String
+  reason        String
+  restock       Boolean  @default(true) // vuelve al stock; si no, se registra como merma
+  refundTotal   Int
+  refundNet     Int
+  refundVat     Int
+  costRecovered Int      @default(0)
+  createdById   String
+  createdAt     DateTime @default(now())
+
+  sale      Sale             @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  branch    Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy User             @relation("ReturnCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  items     SaleReturnItem[]
+
+  @@index([saleId])
+  @@map("sale_returns")
+}
+
+model SaleReturnItem {
+  id            String  @id @default(cuid())
+  returnId      String
+  saleItemId    String
+  quantity      Decimal @db.Decimal(14, 3)
+  refundTotal   Int
+  refundNet     Int
+  refundVat     Int
+  costRecovered Int
+
+  saleReturn SaleReturn      @relation(fields: [returnId], references: [id], onDelete: Restrict)
+  saleItem   SaleItem        @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+  movements  StockMovement[]
+
+  @@index([returnId])
+  @@index([saleItemId])
+  @@map("sale_return_items")
+}
+
+// ----------------------------------------------------------------------------
+// AUDITORÍA (solo agregar; sin UPDATE ni DELETE para el usuario de la aplicación)
+// ----------------------------------------------------------------------------
+
+model AuditLog {
+  id                String   @id @default(cuid())
+  occurredAt        DateTime @default(now())
+  userId            String?
+  userEmailSnapshot String?
+  branchId          String?
+  action            String // "sale.void", "sale.reprint", "product.price_change", "cost.correction"...
+  entity            String
+  entityId          String?
+  before            Json?
+  after             Json?
+  metadata          Json?
+  ipAddress         String?
+  userAgent         String?
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([entity, entityId])
+  @@index([userId, occurredAt])
+  @@index([action, occurredAt])
+  @@index([occurredAt])
+  @@map("audit_logs")
+}
