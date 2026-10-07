@@ -48,6 +48,8 @@ export class FakeDb implements State {
     findSaleByIdempotencyKey: async (k) => [...this.sales.values()].map((s) => s.sale).find((s) => s.idempotencyKey === k) ?? null,
     loadChannel: async (id) => this.channels.get(id) ?? null,
     loadPaymentMethods: async (ids) => new Map(ids.filter((i) => this.methods.has(i)).map((i) => [i, this.methods.get(i)!])),
+    listChannels: async () => [...this.channels.values()].filter((c) => c.isActive).map((c) => ({ id: c.id, code: c.id, name: c.id })),
+    listPaymentMethods: async () => [...this.methods.values()].filter((m) => m.isActive).map((m) => ({ id: m.id, code: m.id, name: m.id })),
   };
   /** Fila "cruda" con TODO lo sensible poblado a propósito: los DTO del vendedor no deben filtrarlo. */
   productReader: ProductReader = {
@@ -68,6 +70,10 @@ export class FakeDb implements State {
   salesReader: SalesReader = {
     list: async (scope, _b, limit) => [...this.sales.values()].map((s) => s.sale).filter((s) => (!scope.createdById || s.createdById === scope.createdById) && (!scope.businessDate || s.businessDate === scope.businessDate)).slice(0, limit),
     financialOf: async (id) => { const f = this.fin.get(id); return f ? { financial: { ...f }, charges: this.charges.filter((c) => c.saleId === id) } : null; },
+    listAdmin: async (_b, f) => { const rows = [...this.sales.values()].filter(({ sale }) => sale.businessDate >= f.from && sale.businessDate <= f.to && (!f.status || sale.status === f.status) && (!f.sellerId || sale.createdById === f.sellerId))
+      .map(({ sale, payments }) => ({ id: sale.id, folio: sale.folio, soldAt: sale.soldAt, businessDate: sale.businessDate, total: sale.total, status: sale.status, channel: sale.channelId, seller: sale.createdById, payments: payments.map((p) => ({ method: p.methodId, amount: p.amount })), externalRef: sale.externalRef ?? null })).slice(0, f.limit);
+      const ok = rows.filter((r) => r.status === 'COMPLETED'); return { rows, totals: { count: ok.length, total: ok.reduce((a, r) => a + r.total, 0) } }; },
+    meta: async (id) => { const s = this.sales.get(id); return s ? { channel: s.sale.channelId, seller: s.sale.createdById, payments: s.payments.map((p) => ({ method: p.methodId, amount: p.amount })), externalRef: s.sale.externalRef ?? null, note: s.sale.note ?? null, voidReason: s.sale.voidReason ?? null, voidedAt: null, voidedBy: null } : null; },
   };
   reportReader: ReportReader = {
     sellerToday: async (uid, date) => { const l = [...this.sales.values()].map((s) => s.sale).filter((s) => s.createdById === uid && s.businessDate === date && s.status === 'COMPLETED'); return { count: l.length, total: l.reduce((a, s) => a + s.total, 0) }; },

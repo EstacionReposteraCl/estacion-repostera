@@ -110,3 +110,56 @@ table.list a:hover { color: var(--accent); }
   .fields { grid-template-columns: 1fr; }
   .hide-sm { display: none; }
 }
+
+/* ---- caja ---- */
+.page-wide { max-width: 1200px; }
+.pos { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.pos-search { display: flex; gap: 8px; align-items: center; }
+.pos-search input { font-size: 1.1rem; padding: 13px 14px; }
+.pos-results { list-style: none; margin: 6px 0 12px; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); max-height: 320px; overflow-y: auto; }
+.pos-results li + li { border-top: 1px solid var(--line); }
+.pos-results button { width: 100%; display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; background: none; border: 0; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.pos-results button:hover:not(:disabled) { background: var(--bg); }
+.pos-results button:disabled { opacity: 0.55; cursor: not-allowed; }
+.pr-meta { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; font-weight: 600; }
+.pos-cart { margin-top: 12px; }
+.qtybox { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.qtybox button { width: 34px; height: 34px; border: 0; background: var(--bg); color: var(--ink); font-size: 1.1rem; cursor: pointer; }
+.qtybox input { width: 54px; border: 0; border-radius: 0; text-align: center; padding: 6px 4px; }
+.pos-right { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; position: sticky; top: 12px; }
+.pos-right select, .pos-right input { width: 100%; }
+.pos-right select { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+.pos-total { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.pos-total strong { font-size: 2rem; letter-spacing: -0.02em; }
+.payrow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.payrow select { flex: 1; } .payrow input { width: 110px; flex: none; }
+.payauto { min-width: 100px; text-align: right; font-weight: 600; }
+.cashbox { margin-top: 8px; padding: 10px; background: var(--bg); border-radius: 8px; }
+.cashbox label { margin-top: 0; }
+.pos-charge { width: 100%; margin-top: 16px; padding: 14px; font-size: 1.1rem; }
+.out { color: var(--danger); }
+@media (max-width: 860px) { .pos { grid-template-columns: 1fr; } .pos-right { position: static; } }
+/* ---- comprobante ---- */
+.receipt { background: #fff; color: #111; max-width: 340px; margin: 0 auto; padding: 18px 16px; border: 1px solid var(--line); border-radius: 6px; font-family: ui-monospace, "Courier New", monospace; font-size: 13px; line-height: 1.35; }
+.receipt header { text-align: center; margin-bottom: 10px; }
+.receipt .rc-doc { margin-top: 6px; font-weight: 700; }
+.receipt .rc-void { margin-top: 6px; font-weight: 700; border: 2px solid #111; padding: 2px; }
+.receipt table { width: 100%; border-collapse: collapse; border-top: 1px dashed #999; border-bottom: 1px dashed #999; }
+.receipt td { padding: 4px 0; vertical-align: top; } .receipt td.num { text-align: right; white-space: nowrap; padding-left: 8px; }
+.receipt .rc-sub { color: #555; }
+.receipt dl { margin: 8px 0; } .receipt dl div { display: flex; justify-content: space-between; } .receipt dt, .receipt dd { margin: 0; }
+.receipt .rc-total { font-size: 16px; font-weight: 700; margin: 4px 0; }
+.receipt footer { text-align: center; margin-top: 10px; color: #555; }
+.receipt-wrap { display: flex; justify-content: center; }
+.charges { list-style: none; padding: 0; margin: 0; } .charges li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.charges li.voided { opacity: 0.55; text-decoration: line-through; }
+table.list.fin td { padding: 6px 4px; }
+@media print {
+  body { background: #fff; }
+  .topbar, .noprint, .ok { display: none !important; }
+  .page { padding: 0; max-width: none; }
+  .receipt { border: 0; max-width: 80mm; margin: 0; padding: 0; }
+  @page { margin: 4mm; }
+}
+.inline select { padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+.filters input[type=date] { width: auto; padding: 8px; }

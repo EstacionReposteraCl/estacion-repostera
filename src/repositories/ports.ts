@@ -83,6 +83,9 @@ export interface CatalogReader {
   findSaleByIdempotencyKey(key: string): Promise<SaleRecord | null>;
   loadChannel(id: string): Promise<{ id: string; isActive: boolean } | null>;
   loadPaymentMethods(ids: string[]): Promise<Map<string, { id: string; isActive: boolean }>>;
+  /** Activos, en el orden configurado (para la caja). */
+  listChannels(): Promise<{ id: string; code: string; name: string }[]>;
+  listPaymentMethods(): Promise<{ id: string; code: string; name: string }[]>;
 }
 
 export interface PurchaseRecord {
@@ -122,7 +125,14 @@ export interface SalesReader {
   /** TODA consulta de ventas aplica el alcance (saleScopeFor). */
   list(scope: SaleScope, branchId: string, limit: number): Promise<SaleRecord[]>;
   financialOf(saleId: string): Promise<{ financial: Financial; charges: ChargeRecord[] } | null>;
+  /** Listado del ADMINISTRADOR por rango de días de negocio (incluye anuladas). */
+  listAdmin(branchId: string, f: SaleListFilter): Promise<{ rows: SaleListRow[]; totals: { count: number; total: Peso } }>;
+  /** Datos de presentación de una venta (canal, vendedor, pagos). No incluye costos. */
+  meta(saleId: string): Promise<SaleMeta | null>;
 }
+export interface SaleListFilter { from: string; to: string; status?: 'COMPLETED' | 'VOIDED'; sellerId?: string; limit: number }
+export interface SaleListRow { id: string; folio: number; soldAt: Date; businessDate: string; total: Peso; status: 'COMPLETED' | 'VOIDED'; channel: string; seller: string; payments: { method: string; amount: Peso }[]; externalRef: string | null }
+export interface SaleMeta { channel: string; seller: string; payments: { method: string; amount: Peso }[]; externalRef: string | null; note: string | null; voidReason: string | null; voidedAt: Date | null; voidedBy: string | null }
 export interface ReportReader {
   sellerToday(userId: string, businessDate: string): Promise<{ count: number; total: Peso }>;
   financial(range: { from: string; to: string }, branchId: string): Promise<{ sales: number; netTotal: Peso; costOfGoodsSold: Peso; grossProfit: Peso; totalCharges: Peso; realProfit: Peso }>;

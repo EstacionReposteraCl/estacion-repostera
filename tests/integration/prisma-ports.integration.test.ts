@@ -126,3 +126,21 @@ test('reportes y folios: vendedor ve solo conteo/total de hoy; folios consecutiv
   assert.equal(new Set(folios).size, folios.length);
   const mine = await svc.sales.listSales(seller); assert.ok(mine.every((x) => x.status === 'COMPLETED' || x.status === 'VOIDED'));
 });
+
+test('ventas (pantallas): opciones de caja, listado del admin con vendedor/pagos y datos del comprobante con alcance del vendedor', async () => {
+  const o = await svc.sales.posOptions(seller);
+  assert.ok(o.channels.some((c) => c.code === 'LOCAL') && o.methods.some((m) => m.code === 'CASH'));
+  const p = await svc.products.save(admin, { sku: `POS-${run}`, name: `Caja ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 2000, vatTreatment: 'AFECTO' });
+  await svc.inventory.openingBalance(admin, { productId: p.id, qty: '5', totalValue: 5000 });
+  const s = await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '2' }], channelId: ids.LOCAL, payments: [{ methodId: ids.DEBIT, amount: 1000 }, { methodId: ids.CASH, amount: 3000 }], idempotencyKey: `pos-${run}` });
+  const list = await svc.sales.listAdmin(admin, {});
+  const row = list.rows.find((r) => r.id === s.id)!;
+  assert.equal(row.seller, 'Vend IT'); assert.deepEqual(row.payments.map((x) => x.amount), [1000, 3000]);
+  assert.ok(list.totals.total >= 4000);
+  assert.equal(await code(svc.sales.listAdmin(seller, {})), 'FORBIDDEN');
+  const meta = await svc.sales.metaForActor(seller, s.id); assert.equal(meta.channel, 'Local'); assert.equal(meta.payments.length, 2);
+  const other = await db.user.create({ data: { id: `sel2-${run}`, name: 'Otro', email: `sel2-${run}@it.cl`, role: 'VENDEDOR' } });
+  assert.equal(await code(svc.sales.metaForActor({ ...seller, userId: other.id }, s.id)), 'NOT_FOUND', 'otro vendedor no ve la venta');
+  const fin = await svc.sales.getSaleFinancial(admin, s.id);
+  assert.equal(fin.charges.find((c) => c.type === 'PAYMENT_FEE')?.amount, 15, '1,5 % solo sobre la parte pagada con débito');
+});

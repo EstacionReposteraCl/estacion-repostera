@@ -7,6 +7,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { actor, name } = await requireActor();
   const nav = [
     { href: "/", label: "Inicio", show: true },
+    { href: "/ventas/nueva", label: "Caja", show: can(actor.role, "sale.create") },
+    { href: "/ventas", label: can(actor.role, "sale.read.any") ? "Ventas" : "Mis ventas", show: can(actor.role, "sale.read.own_today") },
     { href: "/productos", label: "Productos", show: can(actor.role, "product.read.public") },
     { href: "/inventario", label: "Inventario", show: can(actor.role, "inventory.adjust") },
   ].filter((n) => n.show);

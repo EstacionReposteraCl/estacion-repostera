@@ -97,6 +97,8 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     async findSaleByIdempotencyKey(key) { const s = await client.sale.findUnique({ where: { idempotencyKey: key } }); return s ? saleRecord(s) : null; },
     async loadChannel(id) { return client.saleChannel.findUnique({ where: { id }, select: { id: true, isActive: true } }); },
     async loadPaymentMethods(ids) { return new Map((await client.paymentMethod.findMany({ where: { id: { in: ids } }, select: { id: true, isActive: true } })).map((m) => [m.id, m])); },
+    async listChannels() { return client.saleChannel.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], select: { id: true, code: true, name: true } }); },
+    async listPaymentMethods() { return client.paymentMethod.findMany({ where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }], select: { id: true, code: true, name: true } }); },
   };
 
   const products: ProductReader = {
@@ -299,6 +301,19 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
       const f = await client.saleFinancial.findUnique({ where: { saleId } }); if (!f) return null;
       const charges = await client.saleCharge.findMany({ where: { saleId }, orderBy: { createdAt: 'asc' } });
       return { financial: { netTotal: f.netTotal, costOfGoodsSold: f.costOfGoodsSold, grossProfit: f.grossProfit, totalCharges: f.totalCharges, realProfit: f.realProfit }, charges: charges.map(chargeRecord) };
+    },
+    async listAdmin(branchId, f) {
+      const where: Prisma.SaleWhereInput = { branchId, businessDate: { gte: dateOnly(f.from), lte: dateOnly(f.to) }, ...(f.status ? { status: f.status } : {}), ...(f.sellerId ? { createdById: f.sellerId } : {}) };
+      const [rows, agg] = await Promise.all([
+        client.sale.findMany({ where, orderBy: { soldAt: 'desc' }, take: f.limit, include: { channel: { select: { name: true } }, createdBy: { select: { name: true } }, payments: { include: { paymentMethod: { select: { name: true } } }, orderBy: { createdAt: 'asc' } } } }),
+        client.sale.aggregate({ where: { ...where, status: 'COMPLETED' }, _count: { _all: true }, _sum: { total: true } }),
+      ]);
+      return { rows: rows.map((s) => ({ id: s.id, folio: s.folio, soldAt: s.soldAt, businessDate: ymd(s.businessDate), total: s.total, status: s.status, channel: s.channel.name, seller: s.createdBy.name,
+        payments: s.payments.map((p) => ({ method: p.paymentMethod.name, amount: p.amount })), externalRef: s.externalRef })), totals: { count: agg._count._all, total: agg._sum.total ?? 0 } };
+    },
+    async meta(saleId) {
+      const s = await client.sale.findUnique({ where: { id: saleId }, include: { channel: { select: { name: true } }, createdBy: { select: { name: true } }, voidedBy: { select: { name: true } }, payments: { include: { paymentMethod: { select: { name: true } } }, orderBy: { createdAt: 'asc' } } } });
+      return s ? { channel: s.channel.name, seller: s.createdBy.name, payments: s.payments.map((p) => ({ method: p.paymentMethod.name, amount: p.amount })), externalRef: s.externalRef, note: s.note, voidReason: s.voidReason, voidedAt: s.voidedAt, voidedBy: s.voidedBy?.name ?? null } : null;
     },
   };
 

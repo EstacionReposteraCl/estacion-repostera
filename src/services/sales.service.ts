@@ -5,7 +5,7 @@ import { fingerprintOfRequest, fingerprintOfStored, sameOperation, type Fingerpr
 import { planSale, type SaleInput } from '../domain/sales/sale-plan.ts';
 import { planOutflow, planInflow } from '../domain/inventory/inventory.ts';
 import { planChargesAtClose, buildFinancial, planLateCharge, planVoidCharge, type ChargeType } from '../domain/charges/charges.ts';
-import type { CatalogReader, UnitOfWork, SaleRecord, SalesReader } from '../repositories/ports.ts';
+import type { CatalogReader, UnitOfWork, SaleRecord, SalesReader, SaleListRow, SaleMeta } from '../repositories/ports.ts';
 import { canViewSale } from '../policies/sale.policy.ts';
 import { assertChannelAndMethods } from '../domain/sales/channel-rules.ts';
 import { saleScopeFor } from '../policies/sale.policy.ts';
@@ -27,7 +27,31 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
       await uow.run((tx) => tx.audit.write({ action: 'sale.idempotency_conflict', entity: 'Sale', entityId: existingSaleId, userId: actor.userId, metadata: { idempotencyKey: key } }));
   }
 
+  const today = async () => businessDateOf(now(), (await catalog.businessSettings()).timezone);
   return {
+    /** Canales y medios de pago activos para la caja. */
+    async posOptions(actor: Actor | null): Promise<{ channels: { id: string; code: string; name: string }[]; methods: { id: string; code: string; name: string }[]; today: string }> {
+      assertCan(actor, 'sale.create');
+      const [channels, methods, d] = await Promise.all([catalog.listChannels(), catalog.listPaymentMethods(), today()]);
+      return { channels, methods, today: d };
+    },
+
+    /** Listado del ADMINISTRADOR (todas las ventas del rango, incluidas anuladas). Sin costos. */
+    async listAdmin(actor: Actor | null, f: { from?: string; to?: string; status?: 'COMPLETED' | 'VOIDED' }): Promise<{ from: string; to: string; rows: SaleListRow[]; totals: { count: number; total: number } }> {
+      assertCan(actor, 'sale.read.any');
+      const d = await today(); const from = f.from || d; const to = f.to || from;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw validation('Rango de fechas inválido.');
+      const r = await sales.listAdmin(actor.branchId, { from, to, status: f.status, limit: 500 });
+      return { from, to, ...r };
+    },
+
+    /** Datos visibles de una venta (canal, vendedor, pagos) con el MISMO alcance que el comprobante: vendedor solo las suyas de hoy. */
+    async metaForActor(actor: Actor | null, saleId: string): Promise<SaleMeta> {
+      assertCan(actor, actor?.role === 'ADMINISTRADOR' ? 'sale.read.any' : 'sale.read.own_today');
+      await this.getSaleForActor(actor, saleId, true);               // aplica canViewSale (NOT_FOUND si no corresponde)
+      const m = await sales.meta(saleId); if (!m) throw notFound('Venta'); return m;
+    },
+
     /** Cierra una venta en UNA transacción (ver docs/OPERACIONES.md §Ventas). Devuelve solo el DTO seguro para el vendedor. */
     async closeSale(actor: Actor | null, input: SaleInput): Promise<SellerSaleDTO> {
       assertCan(actor, 'sale.create');
