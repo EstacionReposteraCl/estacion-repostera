@@ -1,4 +1,4 @@
-# Estación Repostera — v0.1.0, primera versión funcional
+# Estación Repostera — v0.2.0 (productos e inventario)
 
 Congelados y sin cambios: `prisma/schema.prisma` v0.5 y `docs/reglas-y-pruebas.md` (verificado con `cmp`).
 Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16. Se puede iniciar sesión en el navegador (http://localhost:3000).
@@ -14,7 +14,11 @@ Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16. Se puede iniciar sesión en
 | Better Auth: login, sin registro público, desactivación, límite de intentos, roles enum | ✔ probado en navegador y HTTP |
 | Seed (admin + vendedor de prueba, idempotente) | ✔ |
 | UI: `/login`, `/cambiar-clave`, `/` por rol | ✔ |
-| Repositorios Prisma y pantallas de módulos | ✖ PENDIENTE |
+| Repositorios Prisma (`src/repositories/prisma`) — todos los puertos | ✔ 7 pruebas de integración contra PostgreSQL real con `app_user` (incluye concurrencia real, prueba E) |
+| Módulo Productos (`/productos`): listado, búsqueda por código, ficha, crear/editar, categorías, archivar | ✔ |
+| Módulo Inventario (`/inventario`): stock inicial por lote y ajuste por conteo | ✔ |
+| Importación de catálogo TUU (`scripts/catalog/`) | ✔ 481 productos |
+| Ventas, Compras, Usuarios, Reportes (pantallas) | ✖ siguientes etapas (servicios ya probados) |
 
 ## Comandos
 ```bash
@@ -24,6 +28,7 @@ npm run db:seed            # usuarios y datos base (idempotente)
 npm run dev                # http://localhost:3000   (Ctrl+C para detener)
 npm run build && npm start # modo producción local
 npm run test:unit · npm run typecheck · npm run check:schema
+npm run setup:it-db && npm run test:integration   # servicios + Prisma contra PostgreSQL local
 PSQL_CMD="psql -d estacion_repostera_dev -v ON_ERROR_STOP=1 -q -f -" npm run test:sql-rules   # 63 reglas (antes del seed)
 ```
 

@@ -123,7 +123,6 @@ test('estático: el DTO público de producto nunca lee adminOnly ni campos de co
   const pub = src.slice(src.indexOf('export function toProductPublicDTO'), src.indexOf('/** Solo se llama tras'));
   assert.ok(pub.length > 100 && !/adminOnly|inventoryValue|avgCost/.test(pub));
 });
-test('composition: createServices expone todos los servicios y la raíz Prisma sigue PENDIENTE (lanza)', async () => {
+test('composition: createServices expone todos los servicios (la implementación Prisma se prueba en tests/integration/prisma-ports)', async () => {
   const { svc } = world(); assert.deepEqual(Object.keys(svc).sort(), ['inventory', 'products', 'purchases', 'reports', 'sales', 'users']);
-  const { createPrismaPorts } = await import('../../src/repositories/prisma/index.ts'); assert.throws(() => createPrismaPorts(), /PENDIENTE/);
 });

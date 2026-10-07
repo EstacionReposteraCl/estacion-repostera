@@ -1,7 +1,7 @@
 {
   "name": "estacion-repostera",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Estación Repostera — primera versión funcional (Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16).",
   "engines": {
     "node": ">=22.18.0"
@@ -22,7 +22,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:seed": "prisma db seed",
-    "setup": "npm run db:generate && npm run db:migrate"
+    "setup": "npm run db:generate && npm run db:migrate",
+    "test:integration": "tsx --test tests/integration/prisma-ports.integration.test.ts",
+    "setup:it-db": "scripts/setup-it-db.sh"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -5,5 +5,5 @@
     "allowImportingTsExtensions": true, "noUncheckedIndexedAccess": false, "skipLibCheck": true, "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true, "lib": ["ES2023"], "types": ["node"]
   },
-  "include": ["src/core/{money,errors,permissions,logger,time}/**/*.ts", "src/domain/**/*.ts", "src/dto/**/*.ts", "src/repositories/ports.ts", "src/repositories/prisma/index.ts", "src/server/**/*.ts", "src/policies/**/*.ts", "prisma/seed-data.ts", "prisma/seed-plan.ts", "src/services/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/core/{money,errors,permissions,logger,time}/**/*.ts", "src/domain/**/*.ts", "src/dto/**/*.ts", "src/repositories/ports.ts", "src/repositories/prisma/index.ts", "src/policies/**/*.ts", "prisma/seed-data.ts", "prisma/seed-plan.ts", "src/services/**/*.ts", "tests/**/*.ts"]
 }

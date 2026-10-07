@@ -53,6 +53,11 @@ export class FakeDb implements State {
   productReader: ProductReader = {
     search: async (q, branchId, o) => [...this.products.values()].filter((p) => (o.includeInactive || p.isActive) && (p.name.toLowerCase().includes(q.toLowerCase()) || p.sku === q)).slice(0, o.limit).map((p) => this.row(p, branchId, o.withAdminData)),
     getById: async (id, branchId, w) => { const p = this.products.get(id); return p ? this.row(p, branchId, w) : null; },
+    listAdmin: async (branchId, f) => { const all = [...this.products.values()].filter((p) => (f.status === 'all' || (f.status === 'active') === p.isActive) && (!f.q || p.name.toLowerCase().includes(f.q.toLowerCase()) || p.sku === f.q));
+      return { total: all.length, rows: all.slice((f.page - 1) * f.pageSize, f.page * f.pageSize).map((p) => this.row(p, branchId, true)) }; },
+    referenceCosts: async () => new Map(),
+    withMovements: async (b, ids) => new Set(ids.filter((id) => this.movements.some((m) => m.branchId === b && m.productId === id))),
+    options: async () => ({ units: [...this.units.keys()].map((c) => ({ code: c, name: c, symbol: c })), categories: [] }),
   };
   private row(p: CatalogProduct, branchId: string, admin: boolean): ProductSearchRow {
     const st = this.inv.get(this.key(branchId, p.id));
@@ -116,6 +121,8 @@ export class FakeDb implements State {
         async hasMovements(id) { return self.movements.some((m) => m.productId === id); },
         async save(i: ProductSaveInput) { const id = i.id ?? self.id('prod'); self.prodRows.set(id, { id, sku: i.sku, name: i.name, kind: i.kind, unitCode: i.unitCode, salePrice: i.salePrice, isActive: true }); return { id }; },
         async archive(id) { const r = self.prodRows.get(id)!; r.isActive = false; },
+        async restore(id) { const r = self.prodRows.get(id)!; r.isActive = true; },
+        async ensureCategory(name) { return { id: 'cat-' + name.toLowerCase(), name }; },
       },
       financial: {
         async insert(id, f) { self.fin.set(id, { ...f }); },

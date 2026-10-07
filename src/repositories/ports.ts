@@ -54,6 +54,9 @@ export interface Tx {
     hasMovements(productId: string): Promise<boolean>;
     save(input: ProductSaveInput): Promise<{ id: string }>;
     archive(id: string, userId: string): Promise<void>;
+    restore(id: string): Promise<void>;
+    /** Crea (o devuelve) una categoría por nombre, sin distinguir mayúsculas. */
+    ensureCategory(name: string): Promise<{ id: string; name: string }>;
   };
   financial: {
     insert(saleId: string, f: Financial): Promise<void>;
@@ -92,18 +95,28 @@ export interface PurchaseItemRecord {
   quantity: Milli; lineNet: Peso; lineVat: Peso; lineTotal: Peso; costBasis: Peso;
 }
 export interface ProductWriteRow { id: string; sku: string; name: string; kind: 'GOODS' | 'SERVICE'; unitCode: string; salePrice: Peso; isActive: boolean }
-export interface ProductSaveInput { id?: string; sku: string; name: string; unitCode: string; kind: 'GOODS' | 'SERVICE'; salePrice: Peso; categoryId?: string | null; vatTreatment: 'AFECTO' | 'EXENTO'; barcodes?: string[] }
+export interface ProductSaveInput { id?: string; sku: string; name: string; unitCode: string; kind: 'GOODS' | 'SERVICE'; salePrice: Peso; categoryId?: string | null; vatTreatment: 'AFECTO' | 'EXENTO'; barcodes?: string[]; brand?: string | null }
+export interface ProductListFilter { q?: string; categoryId?: string | null; status: 'active' | 'archived' | 'all'; page: number; pageSize: number }
+export interface ProductFormOptions { units: { code: string; name: string; symbol: string }[]; categories: { id: string; name: string }[] }
 
 /** Fila cruda de búsqueda. Puede traer datos sensibles SOLO en el campo `adminOnly`; los DTO públicos jamás lo leen. */
 export interface ProductSearchRow {
   id: string; sku: string; name: string; unitCode: string; salePrice: Peso; kind: 'GOODS' | 'SERVICE'; stockQty: Milli | null;
   presentations: { id: string; name: string; salePrice: Peso | null; baseQuantity: Milli }[]; category: string | null; isActive: boolean;
+  brand?: string | null; barcodes?: string[]; categoryId?: string | null; vatTreatment?: 'AFECTO' | 'EXENTO';
   adminOnly?: { inventoryValue: Peso | null; stockQty: Milli | null };
 }
 export interface ProductReader {
   /** Busca por nombre/SKU O código de barras exacto. Solo productos activos para el vendedor (lo decide el servicio con includeInactive). */
   search(q: string, branchId: string, opts: { limit: number; includeInactive: boolean; withAdminData: boolean }): Promise<ProductSearchRow[]>;
   getById(id: string, branchId: string, withAdminData: boolean): Promise<ProductSearchRow | null>;
+  /** Listado del ADMINISTRADOR (paginado). Trae adminOnly. */
+  listAdmin(branchId: string, f: ProductListFilter): Promise<{ total: number; rows: ProductSearchRow[] }>;
+  options(): Promise<ProductFormOptions>;
+  /** Costo de referencia (pesos por unidad base) registrado al importar el catálogo; solo para proponer el saldo inicial. SENSIBLE. */
+  referenceCosts(productIds: string[]): Promise<Map<string, Peso>>;
+  /** ¿Tiene movimientos de stock en la sucursal? (decide saldo inicial vs. ajuste por conteo) */
+  withMovements(branchId: string, productIds: string[]): Promise<Set<string>>;
 }
 export interface SalesReader {
   /** TODA consulta de ventas aplica el alcance (saleScopeFor). */
@@ -124,5 +137,5 @@ export interface AuthAdmin {
   setBanned(userId: string, banned: boolean, reason?: string): Promise<void>; // al desactivar, revoca sesiones
   setRole(userId: string, role: 'ADMINISTRADOR' | 'VENDEDOR'): Promise<void>;
 }
-/** Todo lo que necesita la composición. La implementación Prisma (src/repositories/prisma) aún NO existe. */
+/** Todo lo que necesita la composición. Implementación real: src/repositories/prisma (Prisma 7). Pruebas: tests/helpers/fake-db.ts. */
 export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; now?: () => Date }

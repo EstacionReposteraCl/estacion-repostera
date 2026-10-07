@@ -6,7 +6,7 @@ import { averageCostDisplay } from '../domain/inventory/inventory.ts';
 import { assertNoSensitiveKeys } from './sensitive.ts';
 
 export interface ProductPublicDTO { id: string; sku: string; name: string; unit: string; salePrice: number; stock: string | null; presentations: { id: string; name: string; salePrice: number }[] }
-export interface ProductAdminDTO extends ProductPublicDTO { category: string | null; isActive: boolean; avgCost: string | null; inventoryValue: number | null }
+export interface ProductAdminDTO extends ProductPublicDTO { category: string | null; categoryId: string | null; brand: string | null; barcodes: string[]; kind: 'GOODS' | 'SERVICE'; vatTreatment: 'AFECTO' | 'EXENTO'; isActive: boolean; avgCost: string | null; inventoryValue: number | null }
 
 export function toProductPublicDTO(r: ProductSearchRow): ProductPublicDTO {
   return assertNoSensitiveKeys({
@@ -17,6 +17,6 @@ export function toProductPublicDTO(r: ProductSearchRow): ProductPublicDTO {
 /** Solo se llama tras assertCan('product.read.admin'). Los nombres `avgCost`/`inventoryValue` son sensibles A PROPÓSITO: este DTO jamás llega al vendedor. */
 export function toProductAdminDTO(r: ProductSearchRow): ProductAdminDTO {
   const a = r.adminOnly; const qty = a?.stockQty ?? null;
-  return { ...toProductPublicDTO(r), category: r.category, isActive: r.isActive, inventoryValue: a?.inventoryValue ?? null,
+  return { ...toProductPublicDTO(r), category: r.category, categoryId: r.categoryId ?? null, brand: r.brand ?? null, barcodes: r.barcodes ?? [], kind: r.kind, vatTreatment: r.vatTreatment ?? 'AFECTO', isActive: r.isActive, inventoryValue: a?.inventoryValue ?? null,
     avgCost: qty !== null && a?.inventoryValue != null ? averageCostDisplay({ qty, value: a.inventoryValue }) : null };
 }
