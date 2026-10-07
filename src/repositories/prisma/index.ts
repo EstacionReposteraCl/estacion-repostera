@@ -375,12 +375,16 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
   const users: UserStore = {
     async getById(id) { return client.user.findUnique({ where: { id }, select: { id: true, email: true, role: true, banned: true } }); },
     async countActiveAdmins() { return client.user.count({ where: { role: 'ADMINISTRADOR', banned: false } }); },
+    async list() {
+      return client.user.findMany({ orderBy: [{ banned: 'asc' }, { role: 'asc' }, { name: 'asc' }], select: { id: true, name: true, email: true, role: true, banned: true, banReason: true, mustChangePassword: true, lastLoginAt: true, createdAt: true } });
+    },
   };
 
   const authAdmin: AuthAdmin = {
     async createUser() { throw new Error('authAdmin: se conecta en src/server/container.ts (requiere Next.js).'); },
     async setBanned() { throw new Error('authAdmin no conectado'); },
     async setRole() { throw new Error('authAdmin no conectado'); },
+    async setPassword() { throw new Error('authAdmin no conectado'); },
   };
 
   const settings: SettingsStore = {

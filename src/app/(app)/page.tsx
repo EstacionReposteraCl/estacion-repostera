@@ -11,7 +11,7 @@ const MODULES: { perm: Permission; title: string; text: string; href?: string }[
   { perm: "sale.read.own_today", title: "Ventas", text: "Ventas del día, comprobantes, anulaciones y cargos.", href: "/ventas" },
   { perm: "purchase.create", title: "Compras", text: "Facturas y boletas de proveedores; actualizan stock y costo.", href: "/compras" },
   { perm: "report.financial", title: "Reportes", text: "Resultado financiero y cargos." },
-  { perm: "user.write", title: "Usuarios", text: "Crear, desactivar y asignar roles." },
+  { perm: "user.write", title: "Usuarios", text: "Crear, desactivar, roles y contraseñas temporales.", href: "/usuarios" },
   { perm: "settings.write", title: "Configuración", text: "Datos del comprobante, comisiones, canales y medios de pago.", href: "/configuracion" },
 ];
 

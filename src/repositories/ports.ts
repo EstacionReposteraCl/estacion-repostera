@@ -142,12 +142,16 @@ export interface ReportReader {
 export interface UserStore {
   getById(id: string): Promise<{ id: string; email: string; role: 'ADMINISTRADOR' | 'VENDEDOR'; banned: boolean } | null>;
   countActiveAdmins(): Promise<number>;
+  list(): Promise<UserListRow[]>;
 }
+export interface UserListRow { id: string; name: string; email: string; role: 'ADMINISTRADOR' | 'VENDEDOR'; banned: boolean; banReason: string | null; mustChangePassword: boolean; lastLoginAt: Date | null; createdAt: Date }
 /** Operaciones de cuentas que debe hacer Better Auth (hash de contraseña, sesiones). Adaptador real: src/core/auth/auth-admin.ts (sin verificar). */
 export interface AuthAdmin {
   createUser(i: { name: string; email: string; role: 'ADMINISTRADOR' | 'VENDEDOR'; tempPassword: string }): Promise<{ id: string }>;
   setBanned(userId: string, banned: boolean, reason?: string): Promise<void>; // al desactivar, revoca sesiones
   setRole(userId: string, role: 'ADMINISTRADOR' | 'VENDEDOR'): Promise<void>;
+  /** Contraseña temporal: la fija Better Auth (hash), revoca sesiones y obliga a cambiarla al entrar. */
+  setPassword(userId: string, tempPassword: string): Promise<void>;
 }
 /** Todo lo que necesita la composición. Implementación real: src/repositories/prisma (Prisma 7). Pruebas: tests/helpers/fake-db.ts. */
 export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; now?: () => Date }

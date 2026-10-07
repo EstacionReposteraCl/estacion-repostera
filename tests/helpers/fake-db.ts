@@ -80,10 +80,13 @@ export class FakeDb implements State {
     financial: async () => { const z = { sales: 0, netTotal: 0, costOfGoodsSold: 0, grossProfit: 0, totalCharges: 0, realProfit: 0 };
       for (const { sale } of this.sales.values()) { if (sale.status !== 'COMPLETED') continue; const f = this.fin.get(sale.id)!; z.sales++; z.netTotal += f.netTotal; z.costOfGoodsSold += f.costOfGoodsSold; z.grossProfit += f.grossProfit; z.totalCharges += f.totalCharges; z.realProfit += f.realProfit; } return z; },
   };
-  userStore: UserStore = { getById: async (id) => this.users.get(id) ?? null, countActiveAdmins: async () => [...this.users.values()].filter((u) => u.role === 'ADMINISTRADOR' && !u.banned).length };
+  passwords = new Map<string, string>();
+  userStore: UserStore = { getById: async (id) => this.users.get(id) ?? null, countActiveAdmins: async () => [...this.users.values()].filter((u) => u.role === 'ADMINISTRADOR' && !u.banned).length,
+    list: async () => [...this.users.values()].map((u) => ({ ...u, name: u.email, banReason: null, mustChangePassword: false, lastLoginAt: null, createdAt: new Date(0) })) };
   authAdmin: AuthAdmin = {
     createUser: async (i) => { const id = this.id('user'); this.users.set(id, { id, email: i.email, role: i.role, banned: false }); return { id }; },
     setBanned: async (id, b) => { this.users.get(id)!.banned = b; if (b) this.sessionsRevoked.push(id); }, setRole: async (id, r) => { this.users.get(id)!.role = r; },
+    setPassword: async (id, pw) => { this.passwords.set(id, pw); this.sessionsRevoked.push(id); },
   };
   biz: BusinessSettingsRow = { legalName: 'OVELIX SPA', taxId: '78.485.985-1', address: null, phone: null, email: null, receiptFooter: null, timezone: 'America/Santiago', vatRate: 19 };
   feeRows = new Map<string, FeeRuleRow>(); entries = new Map<string, CatalogEntryRow & { kind: 'channel' | 'paymentMethod' }>();

@@ -12,6 +12,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/productos", label: "Productos", show: can(actor.role, "product.read.public") },
     { href: "/inventario", label: "Inventario", show: can(actor.role, "inventory.adjust") },
     { href: "/compras", label: "Compras", show: can(actor.role, "purchase.read") },
+    { href: "/usuarios", label: "Usuarios", show: can(actor.role, "user.write") },
     { href: "/configuracion", label: "Configuración", show: can(actor.role, "settings.write") },
   ].filter((n) => n.show);
   return (

@@ -1,20 +1,36 @@
 import { assertCan, type Actor } from '../core/permissions/permissions.ts';
 import { notFound, validation } from '../core/errors/index.ts';
-import type { UnitOfWork, UserStore, AuthAdmin } from '../repositories/ports.ts';
+import type { UnitOfWork, UserStore, AuthAdmin, UserListRow } from '../repositories/ports.ts';
 import { assertCanDeactivate, assertCanChangeRole } from '../policies/user.policy.ts';
 
 export interface Deps { uow: UnitOfWork; users: UserStore; authAdmin: AuthAdmin }
 type Role = 'ADMINISTRADOR' | 'VENDEDOR';
 export function createUsersService({ uow, users, authAdmin }: Deps) {
   const audit = (a: Actor, action: string, id: string, meta: unknown) => uow.run((tx) => tx.audit.write({ action, entity: 'User', entityId: id, userId: a.userId, metadata: meta }));
+  const tempOk = (p: string) => { if (p.length < 10 || p.length > 64) throw validation('La contraseña temporal debe tener entre 10 y 64 caracteres.'); };
   return {
+    async list(actor: Actor | null): Promise<UserListRow[]> { assertCan(actor, 'user.read'); return users.list(); },
+    /** Reactiva un usuario desactivado (podrá volver a entrar). */
+    async reactivate(actor: Actor | null, userId: string): Promise<void> {
+      assertCan(actor, 'user.write');
+      const t = await users.getById(userId); if (!t) throw notFound('Usuario');
+      if (!t.banned) throw validation('El usuario ya está activo.');
+      await authAdmin.setBanned(userId, false); await audit(actor, 'user.reactivate', userId, {});
+    },
+    /** Restablece la contraseña con una TEMPORAL: cierra sus sesiones y deberá cambiarla al entrar. La contraseña no se guarda en la auditoría. */
+    async resetPassword(actor: Actor | null, userId: string, tempPassword: string): Promise<void> {
+      assertCan(actor, 'user.write'); tempOk(tempPassword);
+      const t = await users.getById(userId); if (!t) throw notFound('Usuario');
+      if (t.banned) throw validation('Reactiva el usuario antes de restablecer su contraseña.');
+      await authAdmin.setPassword(userId, tempPassword); await audit(actor, 'user.reset_password', userId, {});
+    },
     /** Alta por el administrador (no hay registro público). El usuario deberá cambiar la clave al entrar. */
     async create(actor: Actor | null, i: { name: string; email: string; role: Role; tempPassword: string }): Promise<{ id: string }> {
       assertCan(actor, 'user.write');
       if (!i.name.trim()) throw validation('El nombre es obligatorio.');
       const email = i.email.trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw validation('Correo inválido.');
-      if (i.tempPassword.length < 10) throw validation('La contraseña temporal debe tener al menos 10 caracteres.');
+      tempOk(i.tempPassword);
       const r = await authAdmin.createUser({ ...i, email });
       await audit(actor, 'user.create', r.id, { email, role: i.role }); return r;
     },
