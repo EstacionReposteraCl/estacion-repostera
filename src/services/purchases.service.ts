@@ -3,12 +3,12 @@ import { notFound, businessRule, validation, duplicateDocument } from '../core/e
 import { parseQuantity, convertToBase, hasValidDecimals } from '../core/money/quantity.ts';
 import type { Milli, Peso } from '../core/money/rounding.ts';
 import { divRoundHalfUp } from '../core/money/rounding.ts';
-import { buildDocumentKey, normalizeDocNumber, assertDocNumberRequired, planPurchaseLine, planPurchaseVoid, derivedUnitCost, type DocType, type VoidPlan, type VoidItemState } from '../domain/purchases/purchases.ts';
+import { buildDocumentKey, normalizeDocNumber, assertDocNumberRequired, planPurchaseDocument, planPurchaseVoid, type EnteredCost, derivedUnitCost, type DocType, type VoidPlan, type VoidItemState } from '../domain/purchases/purchases.ts';
 import { normalizeRut } from './settings.service.ts';
 import { planInflow } from '../domain/inventory/inventory.ts';
 import type { CatalogReader, UnitOfWork, StockMovementRecord, PurchaseReader, PurchaseListRow, PurchaseDetail, SupplierRow } from '../repositories/ports.ts';
 
-export interface PurchaseLineInput { productId: string; presentationId?: string | null; quantity: string; unitCode?: string; unitCost?: Peso; lineAmount?: Peso }
+export interface PurchaseLineInput { productId: string; presentationId?: string | null; quantity: string; unitCode?: string; unitCost?: number; lineAmount?: Peso }   // unitCost en pesos, hasta 2 decimales (1508.5)
 export interface RegisterPurchaseInput { supplierId?: string | null; docType: DocType; docNumber?: string | null; docDate: string; pricesIncludeVat: boolean; lines: PurchaseLineInput[]; note?: string }
 export interface Deps { uow: UnitOfWork; catalog: CatalogReader; purchases?: PurchaseReader }
 export interface VoidInput { adjusted: boolean; reason: string }
@@ -67,7 +67,7 @@ export function createPurchasesService({ uow, catalog, purchases }: Deps) {
       assertDocNumberRequired(input.docType, input.docNumber ?? null);
       const [products, units] = await Promise.all([catalog.loadProducts(input.lines.map((l) => l.productId)), catalog.loadUnits()]);
       const vatRecoverable = input.docType === 'FACTURA';
-      const lines = input.lines.map((l) => {
+      const metas = input.lines.map((l) => {
         const p = products.get(l.productId); if (!p) throw validation('Producto inexistente.');
         if (p.kind !== 'GOODS') throw businessRule(`"${p.name}" es un servicio: no se compra para inventario.`);
         if (!p.isActive) throw businessRule(`El producto "${p.name}" está inactivo.`);
@@ -87,10 +87,20 @@ export function createPurchasesService({ uow, catalog, purchases }: Deps) {
           if (qty <= 0n) throw validation(`La cantidad de "${p.name}" es demasiado pequeña.`);
         }
         // el costo ingresado es el TOTAL de la línea (obligatorio con presentación); el costo por unidad base se DERIVA (costBasis ÷ cantidad base) y no se guarda
-        const plan = planPurchaseLine({ quantityBase: qty, pricesIncludeVat: input.pricesIncludeVat, vatRecoverable,
-          entered: l.unitCost !== undefined ? { kind: 'unitCost', amount: l.unitCost } : { kind: 'lineAmount', amount: l.lineAmount! } });
-        return { productId: p.id, presentationId: l.presentationId ?? null, nameSnapshot: p.name, enteredQuantity: entered, enteredUnit, quantity: qty, ...plan };
+        let cost: EnteredCost;
+        if (l.unitCost !== undefined) {
+          const cents = Math.round(l.unitCost * 100);
+          if (!Number.isFinite(l.unitCost) || l.unitCost < 0 || Math.abs(l.unitCost * 100 - cents) > 1e-6 || !Number.isSafeInteger(cents)) throw validation(`"${p.name}": costo unitario inválido (máximo 2 decimales, ej.: 1.508,50).`);
+          cost = { kind: 'unitCostCents', cents };
+        } else {
+          if (!Number.isSafeInteger(l.lineAmount) || l.lineAmount! < 0) throw validation(`"${p.name}": el total de la línea debe ser un monto en pesos enteros.`);
+          cost = { kind: 'lineAmount', amount: l.lineAmount! };
+        }
+        return { productId: p.id, presentationId: l.presentationId ?? null, nameSnapshot: p.name, enteredQuantity: entered, enteredUnit, quantity: qty, cost };
       });
+      // IVA sobre el TOTAL del documento (como la factura), repartido entre líneas
+      const plans = planPurchaseDocument(metas.map((m) => ({ quantityBase: m.quantity, entered: m.cost })), { pricesIncludeVat: input.pricesIncludeVat, vatRecoverable });
+      const lines = metas.map((m, i) => { const { cost, ...rest } = m; void cost; return { ...rest, ...plans[i] }; });
       const docNumber = normalizeDocNumber(input.docNumber ?? null);
       const key = buildDocumentKey({ supplierId: input.supplierId ?? null, docType: input.docType, docNumber, status: 'CONFIRMED' });
       return uow.run(async (tx) => {

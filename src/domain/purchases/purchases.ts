@@ -22,25 +22,71 @@ export function assertDocNumberRequired(docType: DocType, docNumber: string | nu
   if ((docType === 'FACTURA' || docType === 'BOLETA') && !normalizeDocNumber(docNumber)) throw validation('Factura y boleta exigen número de documento.');
 }
 
+/** Costo ingresado por línea: costo por unidad base en CENTAVOS (admite $1.508,50 => 150850) O el total de la línea en pesos. */
+export type EnteredCost = { kind: 'unitCostCents'; cents: number } | { kind: 'unitCost'; amount: Peso } | { kind: 'lineAmount'; amount: Peso };
 export interface PurchaseLineInput {
   quantityBase: Milli;                 // ya en unidad base (el servicio convierte presentaciones/unidades)
   pricesIncludeVat: boolean;
   vatRecoverable: boolean;             // factura: true; boleta: false
-  entered: { kind: 'unitCost'; amount: Peso } | { kind: 'lineAmount'; amount: Peso }; // costo unitario por unidad base O total de línea
+  entered: EnteredCost;
   vatRateHundredths?: number;
 }
 export interface PurchaseLinePlan { lineNet: Peso; lineVat: Peso; lineTotal: Peso; costBasis: Peso }
 
-/** costBasis = lineNet si el IVA es recuperable (factura), lineTotal si no (boleta). El costo unitario NO se guarda. */
-export function planPurchaseLine(i: PurchaseLineInput): PurchaseLinePlan {
-  if (i.quantityBase <= 0n) throw validation('La cantidad comprada debe ser mayor que 0.');
-  const rate = i.vatRateHundredths ?? 1900;
-  const amount = i.entered.kind === 'unitCost' ? Number(divRoundHalfUp(i.quantityBase * BigInt(i.entered.amount), 1000n)) : i.entered.amount;
+/** Monto de la línea en pesos enteros: redondeo(cantidad × costo unitario) — el redondeo se hace UNA vez, sobre el total de la línea. */
+export function enteredLineAmount(quantityBase: Milli, e: EnteredCost): Peso {
+  if (quantityBase <= 0n) throw validation('La cantidad comprada debe ser mayor que 0.');
+  let amount: number;
+  if (e.kind === 'lineAmount') amount = e.amount;
+  else {
+    const cents = e.kind === 'unitCostCents' ? e.cents : e.amount * 100;
+    if (!Number.isSafeInteger(cents) || cents < 0) throw validation('Costo unitario inválido (máximo 2 decimales).');
+    amount = Number(divRoundHalfUp(quantityBase * BigInt(cents), 100_000n));   // milésimas × centavos ÷ (1000 × 100)
+  }
   if (!Number.isSafeInteger(amount) || amount < 0) throw validation('Monto de compra inválido.');
-  let lineNet: Peso, lineVat: Peso, lineTotal: Peso;
-  if (i.pricesIncludeVat) { lineTotal = amount; lineNet = netFromGross(amount, rate); lineVat = lineTotal - lineNet; }
-  else { lineNet = amount; lineVat = Number(divRoundHalfUp(BigInt(amount) * BigInt(rate), 10000n)); lineTotal = lineNet + lineVat; }
-  return { lineNet, lineVat, lineTotal, costBasis: i.vatRecoverable ? lineNet : lineTotal };
+  return amount;
+}
+
+/** Línea aislada (IVA calculado sobre la propia línea). Para un documento completo usar planPurchaseDocument. */
+export function planPurchaseLine(i: PurchaseLineInput): PurchaseLinePlan {
+  return planPurchaseDocument([{ quantityBase: i.quantityBase, entered: i.entered }], i)[0];
+}
+
+/** Reparte `total` entre las líneas en proporción a `weights` (piso + mayor resto; empate: índice menor). Σ = total exacto. */
+function distribute(total: number, weights: number[]): number[] {
+  const W = weights.reduce((s, w) => s + w, 0);
+  if (W === 0) { const out = weights.map(() => 0); if (out.length) out[0] = total; return out; }
+  const T = BigInt(total), WW = BigInt(W);
+  const parts = weights.map((w, i) => ({ i, floor: (T * BigInt(w)) / WW, rem: (T * BigInt(w)) % WW }));
+  let left = total - parts.reduce((s, p) => s + Number(p.floor), 0);
+  const out = parts.map((p) => Number(p.floor));
+  for (const p of [...parts].sort((a, b) => (a.rem === b.rem ? a.i - b.i : a.rem > b.rem ? -1 : 1))) { if (left <= 0) break; out[p.i]++; left--; }
+  return out;
+}
+
+/**
+ * Documento completo, como una factura chilena: el IVA se calcula UNA vez sobre el total del documento
+ * (neto: IVA = redondeo(Σneto × 19 %); con IVA: neto = redondeo(Σtotal ÷ 1,19)) y se reparte entre líneas por mayor resto.
+ * Así Σ líneas = encabezado y el total coincide con el papel. costBasis = neto (factura) o total (boleta).
+ */
+export function planPurchaseDocument(lines: { quantityBase: Milli; entered: EnteredCost }[], o: { pricesIncludeVat: boolean; vatRecoverable: boolean; vatRateHundredths?: number }): PurchaseLinePlan[] {
+  const rate = o.vatRateHundredths ?? 1900;
+  const amounts = lines.map((l) => enteredLineAmount(l.quantityBase, l.entered));
+  const sum = amounts.reduce((s, a) => s + a, 0);
+  let nets: number[], vats: number[];
+  if (o.pricesIncludeVat) {
+    nets = distribute(netFromGross(sum, rate), amounts);
+    vats = amounts.map((a, i) => a - nets[i]);
+    // un reparto proporcional nunca deja neto > total ni negativo, pero se verifica por seguridad
+    if (vats.some((v) => v < 0)) throw validation('No se pudo repartir el IVA del documento.');
+  } else {
+    nets = amounts;
+    vats = distribute(Number(divRoundHalfUp(BigInt(sum) * BigInt(rate), 10000n)), amounts);
+  }
+  return amounts.map((_, i) => {
+    const lineNet = nets[i], lineVat = vats[i], lineTotal = lineNet + lineVat;
+    return { lineNet, lineVat, lineTotal, costBasis: o.vatRecoverable ? lineNet : lineTotal };
+  });
 }
 /** Costo unitario derivado para mostrar (pesos por unidad base, 2 decimales) = costBasis ÷ cantidad. */
 export function derivedUnitCost(costBasis: Peso, qty: Milli): string {

@@ -85,3 +85,13 @@ test('anulación ADJUSTED con dos líneas del mismo producto: reparte el valor r
   assert.deepEqual(db.inv.get('main|az'), { qty: 1000n, value: 1375, seq: 5 });          // retira round(5500×3/4)=4.125; varianza 3.500−4.125=−625
   assert.equal(db.purchases.get(p.id)!.purchase.voidVariance, -625); assert.deepEqual(reconcile(rows(db), db.inv.get('main|az')!), []);
 });
+test('costo unitario con centavos y IVA sobre el total: el encabezado cuadra con la factura', async () => {
+  const { db, svc } = world();
+  await svc.purchases.register(admin, fact('777', [{ productId: 'az', quantity: '6', unitCost: 1508.5 }, { productId: 'az', quantity: '1', lineAmount: 104 }]));
+  const { purchase: p, items } = [...db.purchases.values()][0];
+  assert.deepEqual([p.netAmount, p.vatAmount, p.totalAmount], [9155, 1739, 10894]);   // IVA = redondeo(9.155 × 19 %) = 1.739
+  assert.equal(items.reduce((s: number, i: { lineVat: number }) => s + i.lineVat, 0), 1739);
+  assert.equal(db.inv.get('main|az')!.value, 9155);
+  assert.equal(await code(svc.purchases.register(admin, fact('778', [{ productId: 'az', quantity: '1', unitCost: 10.555 }]))), 'VALIDATION');
+  assert.equal(await code(svc.purchases.register(admin, fact('779', [{ productId: 'az', quantity: '1', lineAmount: 10.5 }]))), 'VALIDATION');
+});

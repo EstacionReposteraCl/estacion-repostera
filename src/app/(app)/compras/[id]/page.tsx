@@ -12,6 +12,8 @@ const DOC: Record<string, string> = { FACTURA: "Factura", BOLETA: "Boleta", OTRO
 const dmy = (s: string) => s.split("-").reverse().join("-");
 const q3 = (m: bigint) => `${m / 1000n}.${(m % 1000n).toString().padStart(3, "0")}`;
 
+/** "1508.50" -> "$1.508,50"; "1500.00" -> "$1.500" */
+const unitPeso = (s: string) => { const [e, c] = s.split("."); const ent = "$" + Number(e).toLocaleString("es-CL"); return c && c !== "00" ? `${ent},${c}` : ent; };
 export default async function PurchasePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ nueva?: string }> }) {
   const { actor } = await requireActor();
   if (!can(actor.role, "purchase.read")) redirect("/");
@@ -42,7 +44,7 @@ export default async function PurchasePage({ params, searchParams }: { params: P
           <tr key={i.id}><td><Link href={`/productos/${i.productId}`}>{i.nameSnapshot}</Link><div className="muted small">{i.sku}</div></td>
             <td className="num">{qty(q3(i.quantity))} <span className="muted small">{i.unit.toLowerCase()}</span></td>
             <td className="num">{peso(i.lineNet)}</td><td className="num hide-sm">{peso(i.lineVat)}</td><td className="num">{peso(i.lineTotal)}</td>
-            <td className="num">{peso(i.costBasis)}</td><td className="num hide-sm">{peso(Math.round(Number(d.unitCosts[k])))}</td></tr>))}</tbody>
+            <td className="num">{peso(i.costBasis)}</td><td className="num hide-sm">{unitPeso(d.unitCosts[k])}</td></tr>))}</tbody>
         <tfoot><tr><th>Totales</th><th></th><th className="num">{peso(p.netAmount)}</th><th className="num hide-sm">{peso(p.vatAmount)}</th><th className="num">{peso(p.totalAmount)}</th><th className="num">{peso(d.items.reduce((s, i) => s + i.costBasis, 0))}</th><th className="hide-sm"></th></tr></tfoot>
       </table></div>
       {voidUi && <div style={{ maxWidth: 760 }}><PurchaseVoid id={p.id} {...voidUi} /></div>}

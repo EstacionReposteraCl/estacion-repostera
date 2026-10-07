@@ -174,7 +174,7 @@ test('compras (pantallas): proveedor con RUT único, listado con totales, detall
   const p = await svc.products.save(admin, { sku: `PC-${run}`, name: `Compra ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 3000, vatTreatment: 'AFECTO' });
   const r = await svc.purchases.register(admin, { supplierId: sup.id, docType: 'BOLETA', docNumber: `B-${run}`, docDate: '2026-10-02', pricesIncludeVat: true, lines: [{ productId: p.id, quantity: '6', lineAmount: 11900 }] });
   const d = await svc.purchases.detail(admin, r.id);
-  assert.equal(d.items[0].costBasis, 11900, 'boleta: el costo es el total pagado'); assert.equal(d.unitCosts[0], '1983.33'); assert.equal(d.supplier, `Distribuidora ${run}`);
+  assert.equal(d.items[0].costBasis, 11900, 'boleta: el costo es el total pagado'); assert.equal(d.unitCosts[0], '1983.33'); assert.equal(d.supplier, (sup as { name: string }).name);
   const list = await svc.purchases.list(admin, { from: '2026-10-01', to: '2026-10-31', supplierId: sup.id });
   assert.ok(list.rows.some((x) => x.id === r.id && x.items === 1)); assert.ok(list.totals.total >= 11900);
   // venta posterior => la anulación exacta queda bloqueada y la ajustada calcula varianza
@@ -244,4 +244,13 @@ test('gastos: registro con factura (IVA recuperable), duplicado bloqueado, anula
   assert.equal(again.expenses.resultCost - before.expenses.resultCost, 20000, 'el gasto anulado sale del resultado');
   assert.ok((await svc.expenses.list(admin, { from: d, to: d, status: 'VOIDED' })).some((x) => x.id === f.id));
   assert.equal(await db.auditLog.count({ where: { entity: 'Expense', entityId: f.id } }), 2);
+});
+
+test('compras con centavos en Postgres real: IVA sobre el total y pur_sum/pi_sum se cumplen', async () => {
+  const p = await svc.products.save(admin, { sku: `PD-${run}`, name: `Decimal ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 3000, vatTreatment: 'AFECTO' });
+  const r = await svc.purchases.register(admin, { docType: 'FACTURA', docNumber: `FD-${run}`, docDate: '2026-10-03', pricesIncludeVat: false,
+    lines: [{ productId: p.id, quantity: '6', unitCost: 1508.5 }, { productId: p.id, quantity: '7', unitCost: 1508.5 }] });
+  const d = await svc.purchases.detail(admin, r.id);
+  assert.deepEqual(d.items.map((i) => i.lineNet), [9051, 10560]);
+  assert.deepEqual([d.purchase.netAmount, d.purchase.vatAmount, d.purchase.totalAmount], [19611, 3726, 23337]);   // IVA = redondeo(19.611 × 0,19 = 3.726,09)
 });

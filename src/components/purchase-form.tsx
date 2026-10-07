@@ -1,17 +1,17 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { registerPurchaseAction, purchaseSearchAction } from "@/actions/purchases.actions";
 import type { ProductPublicDTO } from "@/dto/product.dto";
-import { planPurchaseLine } from "@/domain/purchases/purchases";
+import { planPurchaseDocument, type EnteredCost } from "@/domain/purchases/purchases";
+import { parseMoneyCents } from "@/core/money/parse-money";
 import { parseQuantity } from "@/core/money/quantity";
 
 interface Sup { id: string; name: string; taxId: string | null }
 type Mode = "unit" | "line";
 interface Line { p: ProductPublicDTO; qty: string; amount: string; mode: Mode }
 const clp = (n: number) => "$" + n.toLocaleString("es-CL");
-const int = (s: string) => { const t = s.replace(/[.$\s]/g, ""); return /^\d+$/.test(t) ? Number(t) : NaN; };
 
 export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: string }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [error, setError] = useState<string | null>(null);
@@ -24,15 +24,22 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
   useEffect(() => { const t = q.trim(); if (t.length < 2) return; const my = ++seq.current;
     const h = setTimeout(async () => { const r = await purchaseSearchAction(t); if (my === seq.current) setResults(r); }, 250); return () => clearTimeout(h); }, [q]);
 
-  const plans = useMemo(() => lines.map((l) => {
-    try {
-      const qty = parseQuantity(l.qty.replace(",", ".")); const amount = int(l.amount); if (!Number.isFinite(amount) || qty <= 0n) return null;
-      return planPurchaseLine({ quantityBase: qty, pricesIncludeVat: withVat, vatRecoverable: docType === "FACTURA", entered: l.mode === "unit" ? { kind: "unitCost", amount } : { kind: "lineAmount", amount } });
-    } catch { return null; }
-  }), [lines, withVat, docType]);
+  // costo por línea: "por unidad" admite centavos (1.508,50); "total línea" en pesos enteros
+  const costs = lines.map((l): EnteredCost | null => {
+    const c = parseMoneyCents(l.amount); if (c === null) return null;
+    if (l.mode === "unit") return { kind: "unitCostCents", cents: c };
+    return c % 100 === 0 ? { kind: "lineAmount", amount: c / 100 } : null;
+  });
+  const plans = (() => {
+    const idx: number[] = []; const ins: { quantityBase: bigint; entered: EnteredCost }[] = [];
+    lines.forEach((l, i) => { try { const qty = parseQuantity(l.qty.replace(",", ".")); const c = costs[i]; if (c && qty > 0n) { idx.push(i); ins.push({ quantityBase: qty, entered: c }); } } catch { /* línea incompleta */ } });
+    const out: (ReturnType<typeof planPurchaseDocument>[number] | null)[] = lines.map(() => null);
+    try { planPurchaseDocument(ins, { pricesIncludeVat: withVat, vatRecoverable: docType === "FACTURA" }).forEach((p, k) => { out[idx[k]] = p; }); } catch { /* inválido */ }
+    return out;
+  })();
   const totals = plans.reduce((a, p) => (p ? { net: a.net + p.lineNet, vat: a.vat + p.lineVat, total: a.total + p.lineTotal } : a), { net: 0, vat: 0, total: 0 });
   const allOk = lines.length > 0 && plans.every(Boolean);
-  const paper = int(paperTotal); const diff = Number.isFinite(paper) ? paper - totals.total : null;
+  const paperC = parseMoneyCents(paperTotal); const paper = paperC === null ? NaN : Math.round(paperC / 100); const diff = Number.isFinite(paper) ? paper - totals.total : null;
 
   function add(p: ProductPublicDTO) { if (!lines.some((l) => l.p.id === p.id)) setLines((ls) => [...ls, { p, qty: "1", amount: "", mode: "unit" }]); setQ(""); setResults([]); searchRef.current?.focus(); }
   const upd = (i: number, d: Partial<Line>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...d } : l)));
@@ -44,7 +51,7 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
       const r = await registerPurchaseAction({
         supplierId: supplierId && supplierId !== "__new" ? supplierId : null, newSupplier: supplierId === "__new" ? newSup : null,
         docType, docNumber: docNumber || null, docDate, pricesIncludeVat: withVat, note,
-        lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(l.mode === "unit" ? { unitCost: int(l.amount) } : { lineAmount: int(l.amount) }) })),
+        lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(l.mode === "unit" ? { unitCost: (parseMoneyCents(l.amount) ?? NaN) / 100 } : { lineAmount: (parseMoneyCents(l.amount) ?? NaN) / 100 }) })),
       });
       if (r.ok) router.push(`/compras/${r.id}?nueva=1`); else setError(r.error);
     });
@@ -79,7 +86,7 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
             <tr key={l.p.id}>
               <td>{l.p.name}<div className="muted small">{l.p.sku}</div></td>
               <td><input className="qty" value={l.qty} onChange={(e) => upd(i, { qty: e.target.value })} inputMode="decimal" aria-label={`Cantidad de ${l.p.name}`} style={{ width: 80 }} /></td>
-              <td><div className="inline"><input className="money" value={l.amount} onChange={(e) => upd(i, { amount: e.target.value })} inputMode="numeric" placeholder="$" aria-label={`Costo de ${l.p.name}`} />
+              <td><div className="inline"><input className="money" value={l.amount} onChange={(e) => upd(i, { amount: e.target.value })} inputMode="decimal" placeholder={l.mode === "unit" ? "$ ej. 1.508,50" : "$"} aria-label={`Costo de ${l.p.name}`} title={l.mode === "unit" ? "Admite centavos: 1.508,50" : "Total de la línea en pesos"} />
                 <select value={l.mode} onChange={(e) => upd(i, { mode: e.target.value as Mode })} aria-label="Tipo de costo"><option value="unit">por unidad</option><option value="line">total línea</option></select></div></td>
               <td className="num">{pl ? clp(pl.lineNet) : "—"}</td><td className="num hide-sm">{pl ? clp(pl.lineVat) : "—"}</td><td className="num">{pl ? clp(pl.lineTotal) : "—"}</td>
               <td><button type="button" className="link" onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}>Quitar</button></td>
