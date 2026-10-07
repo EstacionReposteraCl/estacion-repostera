@@ -1,4 +1,4 @@
-# Estación Repostera — v0.3.0 (productos, inventario y ventas)
+# Estación Repostera — v0.4.0 (productos, inventario, ventas, compras y configuración)
 
 Congelados y sin cambios: `prisma/schema.prisma` v0.5 y `docs/reglas-y-pruebas.md` (verificado con `cmp`).
 Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16. Se puede iniciar sesión en el navegador (http://localhost:3000).
@@ -19,7 +19,9 @@ Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16. Se puede iniciar sesión en
 | Módulo Inventario (`/inventario`): stock inicial por lote y ajuste por conteo | ✔ |
 | Importación de catálogo TUU (`scripts/catalog/`) | ✔ 481 productos |
 | Módulo Ventas: caja (`/ventas/nueva`), comprobante imprimible, listado, anulación y cargos posteriores | ✔ |
-| Compras, Usuarios, Reportes, Configuración (pantallas) | ✖ siguientes etapas (servicios ya probados) |
+| Módulo Compras (`/compras`): factura/boleta con IVA correcto, anti-duplicado, proveedores con RUT, anulación exacta/ajustada | ✔ |
+| Configuración (`/configuracion`): datos del comprobante, comisiones, canales y medios de pago | ✔ |
+| Usuarios y Reportes (pantallas) | ✖ siguientes etapas (servicios ya probados) |
 
 ## Comandos
 ```bash

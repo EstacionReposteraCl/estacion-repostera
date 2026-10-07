@@ -7,6 +7,8 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client';
 import { prisma as defaultClient } from '../../core/db/client';
 import type {
   Ports, Tx, UnitOfWork, CatalogReader, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin,
+  PurchaseReader, SupplierRow,
+  SettingsStore, FeeRuleRow, CatalogEntryRow, BusinessSettingsRow,
   SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, PurchaseRecord, PurchaseItemRecord, ProductSearchRow, ProductSaveInput, ProductListFilter,
 } from '../ports';
 import type { CatalogProduct } from '../../domain/sales/sale-plan';
@@ -57,6 +59,15 @@ function purchaseItemRecord(i: Prisma.PurchaseItemGetPayload<object>): PurchaseI
   return { id: i.id, purchaseId: i.purchaseId, productId: i.productId, presentationId: i.presentationId, nameSnapshot: i.nameSnapshot, enteredQuantity: M(i.enteredQuantity), enteredUnit: i.enteredUnit,
     quantity: M(i.quantity), lineNet: i.lineNet, lineVat: i.lineVat, lineTotal: i.lineTotal, costBasis: i.costBasis };
 }
+function bizRow(s: Prisma.BusinessSettingsGetPayload<object>): BusinessSettingsRow {
+  return { legalName: s.legalName, taxId: s.taxId, address: s.address, phone: s.phone, email: s.email, receiptFooter: s.receiptFooter, timezone: s.timezone, vatRate: Number(s.vatRate.toFixed(2)) };
+}
+function feeRow(r: Prisma.FeeRuleGetPayload<{ include: { channel: true; paymentMethod: true } }>): FeeRuleRow {
+  const t = r.channel ?? r.paymentMethod!;
+  return { id: r.id, target: r.channel ? 'CHANNEL' : 'PAYMENT_METHOD', targetId: t.id, targetName: t.name, targetCode: t.code, percentMilli: pctMilli(r.percent), fixedAmount: r.fixedAmount, isManualPerSale: r.isManualPerSale, isActive: r.isActive, vatTreatment: r.vatTreatment };
+}
+const supplierRow = (s: Prisma.SupplierGetPayload<object>): SupplierRow => ({ id: s.id, name: s.name, taxId: s.taxId, contactName: s.contactName, phone: s.phone, email: s.email, notes: s.notes, isActive: s.isActive });
+const entryRow = (e: { id: string; code: string; name: string; isActive: boolean; sortOrder: number }): CatalogEntryRow => ({ id: e.id, code: e.code, name: e.name, isActive: e.isActive, sortOrder: e.sortOrder });
 const isUnique = (e: unknown, field?: string) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002' && (!field || JSON.stringify(e.meta ?? {}).includes(field));
 
 // ---------------------------------------------------------------- productos (lectura)
@@ -92,7 +103,7 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     },
     async businessSettings() {
       const s = await client.businessSettings.findUniqueOrThrow({ where: { id: 'singleton' } });
-      return { legalName: s.legalName, taxId: s.taxId, address: s.address, timezone: s.timezone, vatRate: Number(s.vatRate.toFixed(2)) };
+      return { legalName: s.legalName, taxId: s.taxId, address: s.address, timezone: s.timezone, vatRate: Number(s.vatRate.toFixed(2)), receiptFooter: s.receiptFooter };
     },
     async findSaleByIdempotencyKey(key) { const s = await client.sale.findUnique({ where: { idempotencyKey: key } }); return s ? saleRecord(s) : null; },
     async loadChannel(id) { return client.saleChannel.findUnique({ where: { id }, select: { id: true, isActive: true } }); },
@@ -269,6 +280,37 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
         async void(id, reason, userId) { await db.saleCharge.update({ where: { id }, data: { voidedAt: new Date(), voidedById: userId, voidReason: reason } }); },
         async sumActive(saleId) { return (await db.saleCharge.aggregate({ where: { saleId, voidedAt: null }, _sum: { amount: true } }))._sum.amount ?? 0; },
       },
+      suppliers: {
+        async save(i) {
+          const before = i.id ? await db.supplier.findUnique({ where: { id: i.id } }) : null;
+          if (i.id && !before) throw validation('Proveedor inexistente.');
+          const data = { name: i.name, taxId: i.taxId, contactName: i.contactName, phone: i.phone, email: i.email, notes: i.notes, isActive: i.isActive };
+          try { const r = i.id ? await db.supplier.update({ where: { id: i.id }, data }) : await db.supplier.create({ data }); return { id: r.id, before: before ? supplierRow(before) : null }; }
+          catch (e) { if (isUnique(e, 'taxId')) throw validation(`Ya existe un proveedor con RUT ${i.taxId}.`); throw e; }
+        },
+      },
+      settings: {
+        async updateBusiness(d) {
+          const prev = await db.businessSettings.findUniqueOrThrow({ where: { id: 'singleton' } });
+          await db.businessSettings.update({ where: { id: 'singleton' }, data: d });
+          return bizRow(prev);
+        },
+        async upsertFeeRule(target, targetId, d) {
+          const where = target === 'CHANNEL' ? { channelId: targetId } : { paymentMethodId: targetId };
+          const exists = target === 'CHANNEL' ? await db.saleChannel.findUnique({ where: { id: targetId } }) : await db.paymentMethod.findUnique({ where: { id: targetId } });
+          if (!exists) throw validation(target === 'CHANNEL' ? 'Canal inexistente.' : 'Medio de pago inexistente.');
+          const prev = await db.feeRule.findUnique({ where, include: { channel: true, paymentMethod: true } });
+          const data = { percent: dec(BigInt(d.percentMilli)), fixedAmount: d.fixedAmount, isManualPerSale: d.isManualPerSale, isActive: d.isActive, vatTreatment: d.vatTreatment };
+          await db.feeRule.upsert({ where, update: data, create: { ...where, ...data } });
+          return prev ? feeRow(prev) : null;
+        },
+        async updateEntry(kind, id, d) {
+          const prev = kind === 'channel' ? await db.saleChannel.findUnique({ where: { id } }) : await db.paymentMethod.findUnique({ where: { id } });
+          if (!prev) return null;
+          if (kind === 'channel') await db.saleChannel.update({ where: { id }, data: d }); else await db.paymentMethod.update({ where: { id }, data: d });
+          return { id: prev.id, code: prev.code, name: prev.name, isActive: prev.isActive, sortOrder: prev.sortOrder };
+        },
+      },
       audit: {
         async write(e) {
           const j = (v: unknown) => (v === undefined ? undefined : (JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x))) as Prisma.InputJsonValue));
@@ -341,5 +383,36 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     async setRole() { throw new Error('authAdmin no conectado'); },
   };
 
-  return { uow, catalog, products, sales, reports, users, authAdmin };
+  const settings: SettingsStore = {
+    async get() { return bizRow(await client.businessSettings.findUniqueOrThrow({ where: { id: 'singleton' } })); },
+    async feeRules() {
+      const [methods, channels, rules] = await Promise.all([client.paymentMethod.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }), client.saleChannel.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }), client.feeRule.findMany()]);
+      const blank = (target: FeeRuleRow['target'], t: { id: string; name: string; code: string }): FeeRuleRow => ({ id: null, target, targetId: t.id, targetName: t.name, targetCode: t.code, percentMilli: 0, fixedAmount: 0, isManualPerSale: false, isActive: false, vatTreatment: 'UNDEFINED' });
+      const pick = (r: (typeof rules)[number] | undefined, target: FeeRuleRow['target'], t: { id: string; name: string; code: string }): FeeRuleRow => (r ? { id: r.id, target, targetId: t.id, targetName: t.name, targetCode: t.code, percentMilli: pctMilli(r.percent), fixedAmount: r.fixedAmount, isManualPerSale: r.isManualPerSale, isActive: r.isActive, vatTreatment: r.vatTreatment } : blank(target, t));
+      return [...methods.map((m) => pick(rules.find((r) => r.paymentMethodId === m.id), 'PAYMENT_METHOD', m)), ...channels.map((c) => pick(rules.find((r) => r.channelId === c.id), 'CHANNEL', c))];
+    },
+    async channels() { return (await client.saleChannel.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] })).map(entryRow); },
+    async paymentMethods() { return (await client.paymentMethod.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] })).map(entryRow); },
+  };
+
+  const purchases: PurchaseReader = {
+    async list(branchId, f) {
+      const where: Prisma.PurchaseWhereInput = { branchId, docDate: { gte: dateOnly(f.from), lte: dateOnly(f.to) }, ...(f.supplierId ? { supplierId: f.supplierId } : {}), ...(f.status ? { status: f.status } : {}) };
+      const [rows, agg] = await Promise.all([
+        client.purchase.findMany({ where, orderBy: [{ docDate: 'desc' }, { createdAt: 'desc' }], take: f.limit, include: { supplier: { select: { name: true } }, _count: { select: { items: true } } } }),
+        client.purchase.aggregate({ where: { ...where, status: 'CONFIRMED' }, _count: { _all: true }, _sum: { netAmount: true, vatAmount: true, totalAmount: true } }),
+      ]);
+      return { rows: rows.map((p) => ({ id: p.id, docType: p.docType, docNumber: p.docNumber, docDate: ymd(p.docDate), supplier: p.supplier?.name ?? null, status: p.status, netAmount: p.netAmount, vatAmount: p.vatAmount, totalAmount: p.totalAmount, items: p._count.items, createdAt: p.createdAt })),
+        totals: { count: agg._count._all, net: agg._sum.netAmount ?? 0, vat: agg._sum.vatAmount ?? 0, total: agg._sum.totalAmount ?? 0 } };
+    },
+    async detail(id) {
+      const p = await client.purchase.findUnique({ where: { id }, include: { supplier: true, createdBy: { select: { name: true } }, voidedBy: { select: { name: true } }, items: { include: { product: { include: { unit: true } } }, orderBy: { id: 'asc' } } } });
+      if (!p) return null;
+      return { purchase: purchaseRecord(p), supplier: p.supplier?.name ?? null, createdBy: p.createdBy.name, createdAt: p.createdAt, voidedBy: p.voidedBy?.name ?? null, voidedAt: p.voidedAt,
+        items: p.items.map((i) => ({ ...purchaseItemRecord(i), sku: i.product.sku, unit: i.product.unit.code })) };
+    },
+    async suppliers(includeInactive) { return (await client.supplier.findMany({ where: includeInactive ? {} : { isActive: true }, orderBy: { name: 'asc' } })).map(supplierRow); },
+  };
+
+  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases };
 }

@@ -15,7 +15,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   let sale, meta;
   try { [sale, meta] = await Promise.all([services.sales.getSaleForActor(actor, id), services.sales.metaForActor(actor, id)]); }
   catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
-  const fin = can(actor.role, "report.financial") ? await services.sales.getSaleFinancial(actor, id) : null;
+  const [fin, footer] = await Promise.all([can(actor.role, "report.financial") ? services.sales.getSaleFinancial(actor, id) : null, services.sales.receiptFooter(actor)]);
   return (
     <main className="page">
       {nueva && <p className="ok noprint" role="status">Venta registrada. Folio N° {sale.folio}.</p>}
@@ -41,7 +41,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
           <div className="rc-total"><dt>TOTAL</dt><dd>{peso(sale.total)}</dd></div>
           {meta.payments.map((p, i) => <div key={i}><dt>{p.method}</dt><dd>{peso(p.amount)}</dd></div>)}
         </dl>
-        <footer>Documento interno, no válido como boleta.<br />¡Gracias por tu compra!</footer>
+        <footer>{footer && <>{footer}<br /></>}Documento interno, no válido como boleta.<br />¡Gracias por tu compra!</footer>
       </article>
       <ReceiptActions saleId={sale.id} fresh={Boolean(nueva)} />
       {fin && <SaleAdminPanel saleId={sale.id} status={sale.status} fin={fin.financial} charges={fin.charges} />}

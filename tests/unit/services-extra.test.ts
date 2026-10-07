@@ -124,5 +124,5 @@ test('estático: el DTO público de producto nunca lee adminOnly ni campos de co
   assert.ok(pub.length > 100 && !/adminOnly|inventoryValue|avgCost/.test(pub));
 });
 test('composition: createServices expone todos los servicios (la implementación Prisma se prueba en tests/integration/prisma-ports)', async () => {
-  const { svc } = world(); assert.deepEqual(Object.keys(svc).sort(), ['inventory', 'products', 'purchases', 'reports', 'sales', 'users']);
+  const { svc } = world(); assert.deepEqual(Object.keys(svc).sort(), ['inventory', 'products', 'purchases', 'reports', 'sales', 'settings', 'users']);
 });

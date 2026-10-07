@@ -9,9 +9,10 @@ const MODULES: { perm: Permission; title: string; text: string; href?: string }[
   { perm: "inventory.adjust", title: "Inventario", text: "Stock inicial y ajustes por conteo físico.", href: "/inventario" },
   { perm: "sale.create", title: "Caja", text: "Buscar o escanear, cobrar y emitir comprobante.", href: "/ventas/nueva" },
   { perm: "sale.read.own_today", title: "Ventas", text: "Ventas del día, comprobantes, anulaciones y cargos.", href: "/ventas" },
-  { perm: "purchase.create", title: "Compras", text: "Facturas y boletas de proveedores." },
+  { perm: "purchase.create", title: "Compras", text: "Facturas y boletas de proveedores; actualizan stock y costo.", href: "/compras" },
   { perm: "report.financial", title: "Reportes", text: "Resultado financiero y cargos." },
   { perm: "user.write", title: "Usuarios", text: "Crear, desactivar y asignar roles." },
+  { perm: "settings.write", title: "Configuración", text: "Datos del comprobante, comisiones, canales y medios de pago.", href: "/configuracion" },
 ];
 
 export default async function HomePage() {

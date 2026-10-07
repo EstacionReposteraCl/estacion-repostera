@@ -3,16 +3,18 @@ import { notFound, businessRule, validation, duplicateDocument } from '../core/e
 import { parseQuantity, convertToBase, hasValidDecimals } from '../core/money/quantity.ts';
 import type { Milli, Peso } from '../core/money/rounding.ts';
 import { divRoundHalfUp } from '../core/money/rounding.ts';
-import { buildDocumentKey, normalizeDocNumber, assertDocNumberRequired, planPurchaseLine, planPurchaseVoid, type DocType, type VoidPlan, type VoidItemState } from '../domain/purchases/purchases.ts';
+import { buildDocumentKey, normalizeDocNumber, assertDocNumberRequired, planPurchaseLine, planPurchaseVoid, derivedUnitCost, type DocType, type VoidPlan, type VoidItemState } from '../domain/purchases/purchases.ts';
+import { normalizeRut } from './settings.service.ts';
 import { planInflow } from '../domain/inventory/inventory.ts';
-import type { CatalogReader, UnitOfWork, StockMovementRecord } from '../repositories/ports.ts';
+import type { CatalogReader, UnitOfWork, StockMovementRecord, PurchaseReader, PurchaseListRow, PurchaseDetail, SupplierRow } from '../repositories/ports.ts';
 
 export interface PurchaseLineInput { productId: string; presentationId?: string | null; quantity: string; unitCode?: string; unitCost?: Peso; lineAmount?: Peso }
 export interface RegisterPurchaseInput { supplierId?: string | null; docType: DocType; docNumber?: string | null; docDate: string; pricesIncludeVat: boolean; lines: PurchaseLineInput[]; note?: string }
-export interface Deps { uow: UnitOfWork; catalog: CatalogReader }
+export interface Deps { uow: UnitOfWork; catalog: CatalogReader; purchases?: PurchaseReader }
 export interface VoidInput { adjusted: boolean; reason: string }
 
-export function createPurchasesService({ uow, catalog }: Deps) {
+export function createPurchasesService({ uow, catalog, purchases }: Deps) {
+  const reader = () => { if (!purchases) throw new Error('PurchaseReader no configurado'); return purchases; };
   /** Reparte el valor retirado de un producto entre sus líneas (proporcional a cantidad; la última recibe el resto). */
   const allocate = (total: Peso, qtys: Milli[]): Peso[] => {
     const sum = qtys.reduce((a, b) => a + b, 0n); let left = total;
@@ -32,6 +34,31 @@ export function createPurchasesService({ uow, catalog }: Deps) {
   }
 
   return {
+    async list(actor: Actor | null, f: { from: string; to: string; supplierId?: string; status?: 'CONFIRMED' | 'VOIDED' }): Promise<{ rows: PurchaseListRow[]; totals: { count: number; net: number; vat: number; total: number } }> {
+      assertCan(actor, 'purchase.read');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f.from) || !/^\d{4}-\d{2}-\d{2}$/.test(f.to) || f.from > f.to) throw validation('Rango de fechas inválido.');
+      return reader().list(actor.branchId, { ...f, limit: 500 });
+    },
+    /** Detalle con costo unitario DERIVADO por línea (costBasis ÷ cantidad base), nunca guardado. */
+    async detail(actor: Actor | null, id: string): Promise<PurchaseDetail & { unitCosts: string[] }> {
+      assertCan(actor, 'purchase.read');
+      const d = await reader().detail(id); if (!d) throw notFound('Compra');
+      return { ...d, unitCosts: d.items.map((i) => derivedUnitCost(i.costBasis, i.quantity)) };
+    },
+    async suppliers(actor: Actor | null, includeInactive = false): Promise<SupplierRow[]> { assertCan(actor, 'supplier.read'); return reader().suppliers(includeInactive); },
+    async saveSupplier(actor: Actor | null, i: { id?: string; name: string; taxId?: string | null; contactName?: string | null; phone?: string | null; email?: string | null; notes?: string | null; isActive?: boolean }): Promise<{ id: string }> {
+      assertCan(actor, 'supplier.write');
+      const name = i.name.trim(); if (name.length < 2 || name.length > 120) throw validation('El nombre del proveedor debe tener entre 2 y 120 caracteres.');
+      const t = (v: string | null | undefined, max: number) => { const x = (v ?? '').trim(); if (x.length > max) throw validation(`Máximo ${max} caracteres.`); return x || null; };
+      const email = t(i.email, 120); if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw validation('Correo inválido.');
+      const d = { id: i.id, name, taxId: i.taxId?.trim() ? normalizeRut(i.taxId) : null, contactName: t(i.contactName, 80), phone: t(i.phone, 40), email, notes: t(i.notes, 300), isActive: i.isActive ?? true };
+      return uow.run(async (tx) => {
+        const r = await tx.suppliers.save(d);
+        await tx.audit.write({ action: i.id ? 'supplier.update' : 'supplier.create', entity: 'Supplier', entityId: r.id, userId: actor.userId, before: r.before, after: d });
+        return { id: r.id };
+      });
+    },
+
     /** Registra la compra y SUMA costBasis al valor del inventario por línea (ver reglas v0.5). Solo ADMINISTRADOR. */
     async register(actor: Actor | null, input: RegisterPurchaseInput): Promise<{ id: string }> {
       assertCan(actor, 'purchase.create');

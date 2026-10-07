@@ -1,6 +1,6 @@
 // Repositorios EN MEMORIA para probar la orquestación de los servicios (sin Prisma, sin BD).
 // NO prueba SQL, bloqueos ni triggers: eso es trabajo de la integración contra PostgreSQL real.
-import type { Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
+import type { PurchaseReader, SupplierRow, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow, Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
   ProductWriteRow, ProductSaveInput, ProductSearchRow, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin } from '../../src/repositories/ports.ts';
 import type { InventoryState } from '../../src/domain/inventory/inventory.ts';
 import type { Financial, FeeRuleDef } from '../../src/domain/charges/charges.ts';
@@ -85,7 +85,21 @@ export class FakeDb implements State {
     createUser: async (i) => { const id = this.id('user'); this.users.set(id, { id, email: i.email, role: i.role, banned: false }); return { id }; },
     setBanned: async (id, b) => { this.users.get(id)!.banned = b; if (b) this.sessionsRevoked.push(id); }, setRole: async (id, r) => { this.users.get(id)!.role = r; },
   };
-  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, now: this.now }; }
+  biz: BusinessSettingsRow = { legalName: 'OVELIX SPA', taxId: '78.485.985-1', address: null, phone: null, email: null, receiptFooter: null, timezone: 'America/Santiago', vatRate: 19 };
+  feeRows = new Map<string, FeeRuleRow>(); entries = new Map<string, CatalogEntryRow & { kind: 'channel' | 'paymentMethod' }>();
+  settingsStore: SettingsStore = {
+    get: async () => ({ ...this.biz }), feeRules: async () => [...this.feeRows.values()],
+    channels: async () => [...this.entries.values()].filter((e) => e.kind === 'channel'), paymentMethods: async () => [...this.entries.values()].filter((e) => e.kind === 'paymentMethod'),
+  };
+  suppliersMap = new Map<string, SupplierRow>();
+  purchaseReader: PurchaseReader = {
+    list: async (_b, f) => { const rows = [...this.purchases.values()].filter(({ purchase: p }) => p.docDate >= f.from && p.docDate <= f.to && (!f.status || p.status === f.status) && (!f.supplierId || p.supplierId === f.supplierId))
+      .map(({ purchase: p, items }) => ({ id: p.id, docType: p.docType, docNumber: p.docNumber, docDate: p.docDate, supplier: p.supplierId ? this.suppliersMap.get(p.supplierId)?.name ?? p.supplierId : null, status: p.status, netAmount: p.netAmount, vatAmount: p.vatAmount, totalAmount: p.totalAmount, items: items.length, createdAt: new Date() }));
+      const ok = rows.filter((r) => r.status === 'CONFIRMED'); return { rows: rows.slice(0, f.limit), totals: { count: ok.length, net: ok.reduce((a, r) => a + r.netAmount, 0), vat: ok.reduce((a, r) => a + r.vatAmount, 0), total: ok.reduce((a, r) => a + r.totalAmount, 0) } }; },
+    detail: async (id) => { const r = this.purchases.get(id); return r ? { purchase: { ...r.purchase }, supplier: r.purchase.supplierId, createdBy: r.purchase.createdById, createdAt: new Date(), voidedBy: null, voidedAt: null, items: r.items.map((i) => ({ ...i, sku: i.productId, unit: 'UN' })) } : null; },
+    suppliers: async (all) => [...this.suppliersMap.values()].filter((s) => all || s.isActive),
+  };
+  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, now: this.now }; }
 
   private tx(): Tx {
     const self = this;
@@ -143,6 +157,15 @@ export class FakeDb implements State {
         async sumActive(saleId) { return self.charges.filter((c) => c.saleId === saleId && !c.voidedAt).reduce((s, c) => s + c.amount, 0); },
       },
       audit: { async write(e) { self.audit.push(e); } },
+      suppliers: {
+        async save(i) { if (i.taxId && [...self.suppliersMap.values()].some((s) => s.taxId === i.taxId && s.id !== i.id)) throw new Error('duplicate key taxId');
+          const before = i.id ? self.suppliersMap.get(i.id) ?? null : null; const id = i.id ?? self.id('sup'); self.suppliersMap.set(id, { ...i, id }); return { id, before }; },
+      },
+      settings: {
+        async updateBusiness(d) { const before = { ...self.biz }; self.biz = { ...self.biz, ...d }; return before; },
+        async upsertFeeRule(target, targetId, d) { const k = `${target}:${targetId}`; const before = self.feeRows.get(k) ?? null; self.feeRows.set(k, { id: k, target, targetId, targetName: targetId, targetCode: targetId, ...d }); return before; },
+        async updateEntry(kind, id, d) { const e = self.entries.get(id); if (!e || e.kind !== kind) return null; const before = { ...e }; Object.assign(e, d); return before; },
+      },
     };
   }
 }

@@ -163,3 +163,5 @@ table.list.fin td { padding: 6px 4px; }
 }
 .inline select { padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
 .filters input[type=date] { width: auto; padding: 8px; }
+h2.sect { font-size: 1.15rem; margin: 28px 0 6px; }
+.entries { list-style: none; padding: 0; margin: 8px 0 0; } .entries li { padding: 6px 0; border-top: 1px solid var(--line); }

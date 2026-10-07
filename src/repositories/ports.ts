@@ -71,6 +71,8 @@ export interface Tx {
     sumActive(saleId: string): Promise<Peso>;
   };
   audit: { write(e: AuditEntry): Promise<void> };
+  settings: SettingsTx;
+  suppliers: { save(i: SupplierSaveInput): Promise<{ id: string; before: SupplierRow | null }> };
 }
 export interface UnitOfWork { run<T>(fn: (tx: Tx) => Promise<T>): Promise<T> }
 
@@ -79,7 +81,7 @@ export interface CatalogReader {
   loadProducts(ids: string[]): Promise<Map<string, CatalogProduct>>;
   loadUnits(): Promise<Map<string, UnitDef>>;
   loadFeeRules(): Promise<FeeRuleDef[]>;
-  businessSettings(): Promise<{ legalName: string; taxId: string | null; address: string | null; timezone: string; vatRate: number }>;
+  businessSettings(): Promise<{ legalName: string; taxId: string | null; address: string | null; timezone: string; vatRate: number; receiptFooter?: string | null }>;
   findSaleByIdempotencyKey(key: string): Promise<SaleRecord | null>;
   loadChannel(id: string): Promise<{ id: string; isActive: boolean } | null>;
   loadPaymentMethods(ids: string[]): Promise<Map<string, { id: string; isActive: boolean }>>;
@@ -148,4 +150,32 @@ export interface AuthAdmin {
   setRole(userId: string, role: 'ADMINISTRADOR' | 'VENDEDOR'): Promise<void>;
 }
 /** Todo lo que necesita la composición. Implementación real: src/repositories/prisma (Prisma 7). Pruebas: tests/helpers/fake-db.ts. */
-export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; now?: () => Date }
+export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; now?: () => Date }
+
+// ---------------------------------------------------------------- configuración (solo ADMINISTRADOR)
+export interface BusinessSettingsRow { legalName: string; taxId: string | null; address: string | null; phone: string | null; email: string | null; receiptFooter: string | null; timezone: string; vatRate: number }
+export interface FeeRuleRow { id: string | null; target: 'PAYMENT_METHOD' | 'CHANNEL'; targetId: string; targetName: string; targetCode: string; percentMilli: number; fixedAmount: Peso; isManualPerSale: boolean; isActive: boolean; vatTreatment: 'UNDEFINED' | 'RECOVERABLE' | 'NOT_RECOVERABLE' }
+export interface CatalogEntryRow { id: string; code: string; name: string; isActive: boolean; sortOrder: number }
+export interface SettingsStore {
+  get(): Promise<BusinessSettingsRow>;
+  feeRules(): Promise<FeeRuleRow[]>;                         // una fila por medio de pago y por canal (id null = sin regla aún)
+  channels(): Promise<CatalogEntryRow[]>;
+  paymentMethods(): Promise<CatalogEntryRow[]>;
+}
+/** Escrituras de configuración (dentro de una transacción). Devuelven el estado anterior para la auditoría. */
+export interface SettingsTx {
+  updateBusiness(d: Omit<BusinessSettingsRow, 'timezone' | 'vatRate'>): Promise<BusinessSettingsRow>;
+  upsertFeeRule(target: 'PAYMENT_METHOD' | 'CHANNEL', targetId: string, d: { percentMilli: number; fixedAmount: Peso; isManualPerSale: boolean; isActive: boolean; vatTreatment: FeeRuleRow['vatTreatment'] }): Promise<FeeRuleRow | null>;
+  updateEntry(kind: 'channel' | 'paymentMethod', id: string, d: { name: string; isActive: boolean }): Promise<CatalogEntryRow | null>;
+}
+
+// ---------------------------------------------------------------- compras y proveedores (lectura; SOLO ADMINISTRADOR)
+export interface SupplierRow { id: string; name: string; taxId: string | null; contactName: string | null; phone: string | null; email: string | null; notes: string | null; isActive: boolean }
+export interface SupplierSaveInput { id?: string; name: string; taxId: string | null; contactName: string | null; phone: string | null; email: string | null; notes: string | null; isActive: boolean }
+export interface PurchaseListRow { id: string; docType: 'FACTURA' | 'BOLETA' | 'OTRO'; docNumber: string | null; docDate: string; supplier: string | null; status: 'CONFIRMED' | 'VOIDED'; netAmount: Peso; vatAmount: Peso; totalAmount: Peso; items: number; createdAt: Date }
+export interface PurchaseDetail { purchase: PurchaseRecord; supplier: string | null; createdBy: string; createdAt: Date; voidedBy: string | null; voidedAt: Date | null; items: (PurchaseItemRecord & { sku: string; unit: string })[] }
+export interface PurchaseReader {
+  list(branchId: string, f: { from: string; to: string; supplierId?: string; status?: 'CONFIRMED' | 'VOIDED'; limit: number }): Promise<{ rows: PurchaseListRow[]; totals: { count: number; net: Peso; vat: Peso; total: Peso } }>;
+  detail(id: string): Promise<PurchaseDetail | null>;
+  suppliers(includeInactive: boolean): Promise<SupplierRow[]>;
+}

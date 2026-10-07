@@ -29,6 +29,11 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
 
   const today = async () => businessDateOf(now(), (await catalog.businessSettings()).timezone);
   return {
+    /** Pie de página vigente para el comprobante (texto público). */
+    async receiptFooter(actor: Actor | null): Promise<string | null> {
+      assertCan(actor, actor?.role === 'ADMINISTRADOR' ? 'sale.read.any' : 'sale.read.own_today');
+      return (await catalog.businessSettings()).receiptFooter ?? null;
+    },
     /** Canales y medios de pago activos para la caja. */
     async posOptions(actor: Actor | null): Promise<{ channels: { id: string; code: string; name: string }[]; methods: { id: string; code: string; name: string }[]; today: string }> {
       assertCan(actor, 'sale.create');

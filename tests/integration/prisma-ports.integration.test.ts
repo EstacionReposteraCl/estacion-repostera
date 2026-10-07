@@ -144,3 +144,49 @@ test('ventas (pantallas): opciones de caja, listado del admin con vendedor/pagos
   const fin = await svc.sales.getSaleFinancial(admin, s.id);
   assert.equal(fin.charges.find((c) => c.type === 'PAYMENT_FEE')?.amount, 15, '1,5 % solo sobre la parte pagada con débito');
 });
+
+test('configuración: datos del negocio, comisión de canal automática que se aplica a la venta siguiente y canal inactivo bloquea la caja', async () => {
+  const o = await svc.settings.overview(admin);
+  assert.ok(o.feeRules.some((r) => r.target === 'CHANNEL' && r.targetCode === 'MERCADO_LIBRE'));
+  await svc.settings.updateBusiness(admin, { legalName: `Estación Repostera ${run}`, taxId: '78485985-1', receiptFooter: 'Gracias' });
+  assert.equal((await svc.settings.overview(admin)).business.taxId, '78.485.985-1');
+  await svc.settings.saveFeeRule(admin, { target: 'CHANNEL', targetId: ids.MERCADO_LIBRE, percent: '13', fixedAmount: 700, isManualPerSale: false, isActive: true });
+  const p = await svc.products.save(admin, { sku: `ML-${run}`, name: `ML ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 10000, vatTreatment: 'AFECTO' });
+  await svc.inventory.openingBalance(admin, { productId: p.id, qty: '2', totalValue: 8000 });
+  const s = await svc.sales.closeSale(admin, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.MERCADO_LIBRE, payments: [{ methodId: ids.CASH, amount: 10000 }], idempotencyKey: `ml-${run}`, externalRef: `ML-${run}` });
+  assert.equal(s.issuer.legalName, `Estación Repostera ${run}`, 'el comprobante nuevo usa los datos nuevos');
+  const fin = await svc.sales.getSaleFinancial(admin, s.id);
+  assert.deepEqual(fin.charges.map((c) => [c.type, c.amount]).sort(), [['CHANNEL_COMMISSION', 1300], ['CHANNEL_FIXED_FEE', 700]]);
+  assert.equal(await db.auditLog.count({ where: { action: { in: ['settings.business', 'feerule.update'] } } }) >= 2, true);
+  await svc.settings.saveFeeRule(admin, { target: 'CHANNEL', targetId: ids.MERCADO_LIBRE, percent: '0', fixedAmount: 0, isManualPerSale: true, isActive: true });
+  await svc.settings.updateEntry(admin, 'channel', ids.MERCADO_LIBRE, { name: 'Mercado Libre', isActive: false });
+  assert.equal(await code(svc.sales.closeSale(admin, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.MERCADO_LIBRE, payments: [{ methodId: ids.CASH, amount: 10000 }], idempotencyKey: `ml2-${run}` })), 'BUSINESS_RULE');
+  assert.ok(!(await svc.sales.posOptions(seller)).channels.some((c) => c.id === ids.MERCADO_LIBRE));
+  await svc.settings.updateEntry(admin, 'channel', ids.MERCADO_LIBRE, { name: 'Mercado Libre', isActive: true });
+  assert.equal(await code(svc.settings.overview(seller)), 'FORBIDDEN');
+});
+
+test('compras (pantallas): proveedor con RUT único, listado con totales, detalle con costo unitario derivado; anulación ajustada con varianza', async () => {
+  const sup = await svc.purchases.saveSupplier(admin, { name: `Distribuidora ${run}`, taxId: '76.086.428-5' }).catch(async () => (await svc.purchases.suppliers(admin, true)).find((s) => s.taxId === '76.086.428-5')!);
+  assert.equal(await code(svc.purchases.saveSupplier(admin, { name: 'Copia', taxId: '76086428-5' })), 'VALIDATION', 'RUT de proveedor no se repite');
+  assert.equal(await code(svc.purchases.saveSupplier(admin, { name: 'Malo', taxId: '76086428-4' })), 'VALIDATION', 'dígito verificador');
+  assert.equal(await code(svc.purchases.suppliers(seller)), 'FORBIDDEN');
+  const p = await svc.products.save(admin, { sku: `PC-${run}`, name: `Compra ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 3000, vatTreatment: 'AFECTO' });
+  const r = await svc.purchases.register(admin, { supplierId: sup.id, docType: 'BOLETA', docNumber: `B-${run}`, docDate: '2026-10-02', pricesIncludeVat: true, lines: [{ productId: p.id, quantity: '6', lineAmount: 11900 }] });
+  const d = await svc.purchases.detail(admin, r.id);
+  assert.equal(d.items[0].costBasis, 11900, 'boleta: el costo es el total pagado'); assert.equal(d.unitCosts[0], '1983.33'); assert.equal(d.supplier, `Distribuidora ${run}`);
+  const list = await svc.purchases.list(admin, { from: '2026-10-01', to: '2026-10-31', supplierId: sup.id });
+  assert.ok(list.rows.some((x) => x.id === r.id && x.items === 1)); assert.ok(list.totals.total >= 11900);
+  // venta posterior => la anulación exacta queda bloqueada y la ajustada calcula varianza
+  await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.LOCAL, payments: [{ methodId: ids.CASH, amount: 3000 }], idempotencyKey: `pc-${run}` });
+  const exact = await svc.purchases.previewVoid(admin, r.id, false); assert.equal(exact.status, 'blocked');
+  assert.equal(exact.status === 'blocked' && exact.reason, 'STOCK_BELOW_PURCHASED', 'se vendió parte: nunca se puede anular');
+  const p2 = await svc.products.save(admin, { sku: `PC2-${run}`, name: `Compra2 ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 3000, vatTreatment: 'AFECTO' });
+  const r2 = await svc.purchases.register(admin, { docType: 'OTRO', docDate: '2026-10-02', pricesIncludeVat: true, lines: [{ productId: p2.id, quantity: '3', lineAmount: 3000 }] });
+  await svc.purchases.register(admin, { docType: 'OTRO', docDate: '2026-10-03', pricesIncludeVat: true, lines: [{ productId: p2.id, quantity: '3', lineAmount: 6000 }] });
+  const adj = await svc.purchases.previewVoid(admin, r2.id, true);
+  assert.equal(adj.status, 'ok'); assert.equal(adj.status === 'ok' && adj.mode, 'ADJUSTED'); assert.equal(adj.status === 'ok' && adj.totalVariance, -1500, '3.000 − retiro a promedio 4.500');
+  await svc.purchases.void(admin, r2.id, { reason: 'devuelta al proveedor', adjusted: true });
+  const after = await svc.products.getAdmin(admin, p2.id); assert.equal(after.stock, '3.000'); assert.equal(after.inventoryValue, 4500);
+  assert.deepEqual(await svc.inventory.reconcile(admin, p2.id), { ok: true, errors: [] });
+});
