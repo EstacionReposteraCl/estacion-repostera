@@ -22,7 +22,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
       <article className="receipt">
         <header>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-bn.png" alt="" className="rc-logo" width={86} height={120} />
+          <img src="/logo-empresa-bn.png" alt="" className="rc-logo" width={108} height={90} />
           <strong>{sale.issuer.legalName}</strong>
           {sale.issuer.taxId && <div>RUT {sale.issuer.taxId}</div>}
           {sale.issuer.address && <div>{sale.issuer.address}</div>}
