@@ -3,6 +3,7 @@ import Image from "next/image";
 import { requireActor } from "@/lib/session";
 import { can } from "@/core/permissions";
 import { signOutAction } from "@/actions/auth.actions";
+import { MainNav } from "@/components/main-nav";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { actor, name } = await requireActor();
@@ -21,7 +22,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <>
       <header className="topbar">
         <Link href="/" className="brandlink"><Image src="/logo-sm.png" alt="" width={29} height={40} priority /><span className="brandtext">Estación <em>Repostera</em></span></Link>
-        <nav className="mainnav">{nav.map((n) => <Link key={n.href} href={n.href}>{n.label}</Link>)}</nav>
+        <MainNav items={nav.map(({ href, label }) => ({ href, label }))} />
         <div className="who">
           <span className="whoname">{name}</span> <span className="badge">{actor.role}</span>
           <form action={signOutAction} style={{ display: "inline", marginLeft: 10 }}>
