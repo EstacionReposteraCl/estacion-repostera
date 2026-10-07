@@ -58,8 +58,8 @@ button.link { background: none; border: 0; color: var(--accent); font: inherit; 
 .note { color: var(--muted); font-size: 0.875rem; margin-top: 24px; }
 
 /* ---- marco de la app ---- */
-.brandlink { font-weight: 700; color: var(--ink); text-decoration: none; white-space: nowrap; }
-.brandlink span { color: var(--accent); }
+.brandlink { font-weight: 700; color: var(--ink); text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+.brandlink em { color: var(--accent); font-style: normal; }
 .mainnav { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
 .mainnav a { color: var(--ink); text-decoration: none; padding: 6px 10px; border-radius: 6px; font-size: 0.95rem; white-space: nowrap; }
 .mainnav a:hover { background: var(--bg); }
@@ -184,3 +184,6 @@ code.temp { font-size: 1.05rem; padding: 6px 10px; background: var(--surface); b
 table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px; }
 .bar:nth-child(-n+2):hover::after, .bar:nth-child(-n+2):focus::after { left: 0; transform: none; }
 .bar:nth-last-child(-n+2):hover::after, .bar:nth-last-child(-n+2):focus::after { left: auto; right: 0; transform: none; }
+
+.login-logo { display: block; margin: 0 auto 14px; height: 128px; width: auto; }
+.receipt .rc-logo { display: block; margin: 0 auto 6px; width: 24mm; height: auto; }

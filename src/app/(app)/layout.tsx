@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { requireActor } from "@/lib/session";
 import { can } from "@/core/permissions";
 import { signOutAction } from "@/actions/auth.actions";
@@ -19,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <header className="topbar">
-        <Link href="/" className="brandlink">Estación <span>Repostera</span></Link>
+        <Link href="/" className="brandlink"><Image src="/logo-sm.png" alt="" width={29} height={40} priority /><span className="brandtext">Estación <em>Repostera</em></span></Link>
         <nav className="mainnav">{nav.map((n) => <Link key={n.href} href={n.href}>{n.label}</Link>)}</nav>
         <div className="who">
           <span className="whoname">{name}</span> <span className="badge">{actor.role}</span>

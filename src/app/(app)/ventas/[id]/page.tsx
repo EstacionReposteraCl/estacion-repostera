@@ -21,6 +21,8 @@ export default async function SalePage({ params, searchParams }: { params: Promi
       {nueva && <p className="ok noprint" role="status">Venta registrada. Folio N° {sale.folio}.</p>}
       <article className="receipt">
         <header>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-bn.png" alt="" className="rc-logo" width={86} height={120} />
           <strong>{sale.issuer.legalName}</strong>
           {sale.issuer.taxId && <div>RUT {sale.issuer.taxId}</div>}
           {sale.issuer.address && <div>{sale.issuer.address}</div>}
