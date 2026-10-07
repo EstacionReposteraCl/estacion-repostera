@@ -15,13 +15,19 @@ const ADMINISTRADOR = ac.newRole({
 });
 const VENDEDOR = ac.newRole({ user: [], session: [] });
 
-// URL pública: BETTER_AUTH_URL si existe; en Vercel, el dominio de producción que Vercel entrega solo.
+// Direcciones desde las que se puede iniciar sesión (Better Auth rechaza cualquier otro origen):
+//  - el dominio propio y el de Vercel (ambos sirven la misma app; el de Vercel queda como respaldo),
+//  - BETTER_AUTH_URL y el dominio de producción que entrega Vercel,
+//  - AUTH_TRUSTED_ORIGINS (lista separada por comas) para casos puntuales (p. ej. pruebas locales).
+const KNOWN_ORIGINS = ["https://sistema.estacionrepostera.cl", "https://estacion-repostera.vercel.app"];
 const vercelUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined;
 const baseURL = process.env.BETTER_AUTH_URL || vercelUrl;
+const extraOrigins = (process.env.AUTH_TRUSTED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean);
+export const trustedOrigins = [...new Set([baseURL, vercelUrl, ...(process.env.VERCEL ? KNOWN_ORIGINS : []), ...extraOrigins].filter((o): o is string => Boolean(o)))];
 
 export const auth = betterAuth({
   baseURL,
-  trustedOrigins: baseURL ? [baseURL] : [],
+  trustedOrigins,
   database: prismaAdapter(prisma, { provider: "postgresql" }),
   emailAndPassword: {
     enabled: true,
