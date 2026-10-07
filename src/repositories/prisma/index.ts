@@ -7,7 +7,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client';
 import { prisma as defaultClient } from '../../core/db/client';
 import type {
   Ports, Tx, UnitOfWork, CatalogReader, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin,
-  PurchaseReader, SupplierRow,
+  PurchaseReader, SupplierRow, ExpenseReader, ExpenseRecord,
   SettingsStore, FeeRuleRow, CatalogEntryRow, BusinessSettingsRow,
   SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, PurchaseRecord, PurchaseItemRecord, ProductSearchRow, ProductSaveInput, ProductListFilter,
 } from '../ports';
@@ -289,6 +289,34 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
           catch (e) { if (isUnique(e, 'taxId')) throw validation(`Ya existe un proveedor con RUT ${i.taxId}.`); throw e; }
         },
       },
+      expenses: {
+        async insert(e) {
+          const r = await db.expense.create({ data: { branchId: e.branchId, categoryId: e.categoryId, supplierId: e.supplierId, description: e.description, docType: e.docType, docNumber: e.docNumber,
+            expenseDate: dateOnly(e.expenseDate), vatRecoverable: e.vatRecoverable, netAmount: e.netAmount, vatAmount: e.vatAmount, totalAmount: e.totalAmount, createdById: e.createdById } });
+          return { id: r.id };
+        },
+        async findDuplicate(e) {
+          const r = await db.expense.findFirst({ where: { status: 'CONFIRMED', supplierId: e.supplierId, docType: e.docType as 'FACTURA', docNumber: { equals: e.docNumber, mode: 'insensitive' } } });
+          return r ? { id: r.id, expenseDate: ymd(r.expenseDate) } : null;
+        },
+        async getForUpdate(id) {
+          const r = await db.$queryRaw<{ id: string; status: 'CONFIRMED' | 'VOIDED' }[]>`SELECT id, status::text AS status FROM expenses WHERE id = ${id} FOR UPDATE`;
+          return r[0] ?? null;
+        },
+        async markVoided(id, reason, userId) { await db.expense.update({ where: { id }, data: { status: 'VOIDED', voidReason: reason, voidedAt: new Date(), voidedById: userId } }); },
+        async ensureCategory(name) {
+          const n = name.trim().replace(/\s+/g, ' ');
+          const f = await db.expenseCategory.findFirst({ where: { name: { equals: n, mode: 'insensitive' } } });
+          if (f) { if (!f.isActive) await db.expenseCategory.update({ where: { id: f.id }, data: { isActive: true } }); return { id: f.id, name: f.name }; }
+          const c = await db.expenseCategory.create({ data: { name: n } }); return { id: c.id, name: c.name };
+        },
+        async updateCategory(id, d) {
+          const prev = await db.expenseCategory.findUnique({ where: { id } }); if (!prev) return null;
+          try { await db.expenseCategory.update({ where: { id }, data: d }); } catch (e) { if (isUnique(e)) throw validation(`Ya existe la categoría "${d.name}".`); throw e; }
+          return { name: prev.name, isActive: prev.isActive };
+        },
+        async categoryActive(id) { return (await db.expenseCategory.findUnique({ where: { id } }))?.isActive ?? null; },
+      },
       settings: {
         async updateBusiness(d) {
           const prev = await db.businessSettings.findUniqueOrThrow({ where: { id: 'singleton' } });
@@ -465,5 +493,27 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     async suppliers(includeInactive) { return (await client.supplier.findMany({ where: includeInactive ? {} : { isActive: true }, orderBy: { name: 'asc' } })).map(supplierRow); },
   };
 
-  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases };
+  const expInclude = { category: { select: { name: true } }, supplier: { select: { name: true } }, createdBy: { select: { name: true } }, voidedBy: { select: { name: true } } } as const;
+  const expRecord = (e: Prisma.ExpenseGetPayload<{ include: typeof expInclude }>): ExpenseRecord => ({
+    id: e.id, branchId: e.branchId, categoryId: e.categoryId, category: e.category.name, supplierId: e.supplierId, supplier: e.supplier?.name ?? null, description: e.description,
+    docType: e.docType, docNumber: e.docNumber, expenseDate: ymd(e.expenseDate), status: e.status, vatRecoverable: e.vatRecoverable, netAmount: e.netAmount, vatAmount: e.vatAmount,
+    totalAmount: e.totalAmount, createdBy: e.createdBy.name, createdAt: e.createdAt, voidReason: e.voidReason, voidedBy: e.voidedBy?.name ?? null });
+  const expenses: ExpenseReader = {
+    async list(branchId, f) {
+      return (await client.expense.findMany({ where: { branchId, expenseDate: { gte: dateOnly(f.from), lte: dateOnly(f.to) }, ...(f.categoryId ? { categoryId: f.categoryId } : {}), ...(f.status ? { status: f.status } : {}) },
+        include: expInclude, orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }], take: f.limit })).map(expRecord);
+    },
+    async get(id) { const e = await client.expense.findUnique({ where: { id }, include: expInclude }); return e ? expRecord(e) : null; },
+    async categories(all) { return client.expenseCategory.findMany({ where: all ? {} : { isActive: true }, orderBy: { name: 'asc' }, select: { id: true, name: true, isActive: true } }); },
+    async totalsByCategory(branchId, range) {
+      const rows = await client.$queryRaw<{ category: string; count: bigint; total: bigint; cost: bigint }[]>`
+        SELECT c.name AS category, count(*) AS count, sum(e."totalAmount") AS total, sum(CASE WHEN e."vatRecoverable" THEN e."netAmount" ELSE e."totalAmount" END) AS cost
+        FROM expenses e JOIN expense_categories c ON c.id = e."categoryId"
+        WHERE e."branchId" = ${branchId} AND e.status = 'CONFIRMED' AND e."expenseDate" BETWEEN ${range.from}::date AND ${range.to}::date
+        GROUP BY c.name ORDER BY 4 DESC`;
+      return rows.map((r) => ({ category: r.category, count: Number(r.count), total: Number(r.total), resultCost: Number(r.cost) }));
+    },
+  };
+
+  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases, expenses };
 }

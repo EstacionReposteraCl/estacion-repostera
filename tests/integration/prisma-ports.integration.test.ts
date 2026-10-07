@@ -226,3 +226,22 @@ test('Rappi: medio de pago nuevo + precio manual del ADMINISTRADOR (auditado); c
   assert.deepEqual((a.metadata as { lines: { catalogPrice: number; appliedPrice: number }[] }).lines.map((l) => [l.catalogPrice, l.appliedPrice]), [[5000, 6500]]);
   await svc.settings.saveFeeRule(admin, { target: 'CHANNEL', targetId: rappi, percent: '0', fixedAmount: 0, isManualPerSale: true, isActive: true });
 });
+
+test('gastos: registro con factura (IVA recuperable), duplicado bloqueado, anulación, y utilidad del negocio en el reporte', async () => {
+  const d = await svc.reports.today(admin);
+  const cat = (await svc.expenses.categories(admin)).find((c) => c.name === 'Arriendo')!;
+  const before = await svc.reports.overview(admin, { from: d, to: d });
+  const f = await svc.expenses.create(admin, { categoryId: cat.id, description: `Luz ${run}`, expenseDate: d, totalAmount: 119000, docType: 'FACTURA', docNumber: `E-${run}` });
+  await svc.expenses.create(admin, { categoryId: cat.id, description: `Feria ${run}`, expenseDate: d, totalAmount: 20000 });
+  assert.equal(await code(svc.expenses.create(admin, { categoryId: cat.id, description: 'dup', expenseDate: d, totalAmount: 1000, docType: 'FACTURA', docNumber: `e-${run}` })), 'BUSINESS_RULE');
+  assert.equal(await code(svc.expenses.create(seller, { categoryId: cat.id, description: 'x', expenseDate: d, totalAmount: 1 })), 'FORBIDDEN');
+  const after = await svc.reports.overview(admin, { from: d, to: d });
+  assert.equal(after.expenses.resultCost - before.expenses.resultCost, 100000 + 20000, 'factura a neto + gasto sin documento al total');
+  assert.equal(after.businessProfit, after.totals.realProfit - after.expenses.resultCost);
+  await svc.expenses.void(admin, f.id, 'duplicado en papel');
+  const v = await svc.expenses.get(admin, f.id); assert.equal(v.status, 'VOIDED'); assert.equal(v.voidReason, 'duplicado en papel');
+  const again = await svc.reports.overview(admin, { from: d, to: d });
+  assert.equal(again.expenses.resultCost - before.expenses.resultCost, 20000, 'el gasto anulado sale del resultado');
+  assert.ok((await svc.expenses.list(admin, { from: d, to: d, status: 'VOIDED' })).some((x) => x.id === f.id));
+  assert.equal(await db.auditLog.count({ where: { entity: 'Expense', entityId: f.id } }), 2);
+});

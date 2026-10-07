@@ -20,6 +20,7 @@ Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16. Se puede iniciar sesión en
 | Importación de catálogo TUU (`scripts/catalog/`) | ✔ 481 productos |
 | Módulo Ventas: caja (`/ventas/nueva`), comprobante imprimible, listado, anulación y cargos posteriores | ✔ |
 | Módulo Compras (`/compras`): factura/boleta con IVA correcto, anti-duplicado, proveedores con RUT, anulación exacta/ajustada | ✔ |
+| Gastos (`/gastos`): registro con IVA correcto (factura a neto), anti-duplicado, anulación, categorías; utilidad del negocio en Reportes | ✔ |
 | Configuración (`/configuracion`): datos del comprobante, comisiones, canales y medios de pago | ✔ |
 | Usuarios (`/usuarios`): alta con contraseña temporal, restablecer, roles, desactivar/reactivar | ✔ |
 | Reportes (`/reportes`): KPIs, venta neta por día, productos, vendedores, canales, medios de pago, cargos e inventario valorizado | ✔ |

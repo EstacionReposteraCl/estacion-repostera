@@ -73,6 +73,16 @@ export interface Tx {
   audit: { write(e: AuditEntry): Promise<void> };
   settings: SettingsTx;
   suppliers: { save(i: SupplierSaveInput): Promise<{ id: string; before: SupplierRow | null }> };
+  expenses: {
+    insert(e: ExpenseInsert): Promise<{ id: string }>;
+    /** Gasto CONFIRMED con el mismo proveedor (o sin proveedor), tipo y n° de documento: evita registrar dos veces la misma factura. */
+    findDuplicate(e: { supplierId: string | null; docType: string; docNumber: string }): Promise<{ id: string; expenseDate: string } | null>;
+    getForUpdate(id: string): Promise<{ id: string; status: 'CONFIRMED' | 'VOIDED' } | null>;
+    markVoided(id: string, reason: string, userId: string): Promise<void>;
+    ensureCategory(name: string): Promise<{ id: string; name: string }>;
+    updateCategory(id: string, d: { name: string; isActive: boolean }): Promise<{ name: string; isActive: boolean } | null>;
+    categoryActive(id: string): Promise<boolean | null>;
+  };
 }
 export interface UnitOfWork { run<T>(fn: (tx: Tx) => Promise<T>): Promise<T> }
 
@@ -168,7 +178,7 @@ export interface AuthAdmin {
   setPassword(userId: string, tempPassword: string): Promise<void>;
 }
 /** Todo lo que necesita la composición. Implementación real: src/repositories/prisma (Prisma 7). Pruebas: tests/helpers/fake-db.ts. */
-export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; now?: () => Date }
+export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; now?: () => Date }
 
 // ---------------------------------------------------------------- configuración (solo ADMINISTRADOR)
 export interface BusinessSettingsRow { legalName: string; taxId: string | null; address: string | null; phone: string | null; email: string | null; receiptFooter: string | null; timezone: string; vatRate: number }
@@ -199,3 +209,20 @@ export interface PurchaseReader {
   detail(id: string): Promise<PurchaseDetail | null>;
   suppliers(includeInactive: boolean): Promise<SupplierRow[]>;
 }
+
+// ---------------------------------------------------------------- gastos (SOLO ADMINISTRADOR)
+export interface ExpenseRecord {
+  id: string; branchId: string; categoryId: string; category: string; supplierId: string | null; supplier: string | null; description: string;
+  docType: 'FACTURA' | 'BOLETA' | 'OTRO' | null; docNumber: string | null; expenseDate: string; status: 'CONFIRMED' | 'VOIDED'; vatRecoverable: boolean;
+  netAmount: Peso; vatAmount: Peso; totalAmount: Peso; createdBy: string; createdAt: Date; voidReason: string | null; voidedBy: string | null;
+}
+export interface ExpenseCategoryRow { id: string; name: string; isActive: boolean }
+export interface ExpenseReader {
+  list(branchId: string, f: { from: string; to: string; categoryId?: string; status?: 'CONFIRMED' | 'VOIDED'; limit: number }): Promise<ExpenseRecord[]>;
+  get(id: string): Promise<ExpenseRecord | null>;
+  categories(includeInactive: boolean): Promise<ExpenseCategoryRow[]>;
+  /** Totales del período por categoría (solo CONFIRMED). resultCost = neto si el IVA es recuperable, si no el total. */
+  totalsByCategory(branchId: string, range: { from: string; to: string }): Promise<{ category: string; count: number; total: Peso; resultCost: Peso }[]>;
+}
+export interface ExpenseInsert { branchId: string; categoryId: string; supplierId: string | null; description: string; docType: 'FACTURA' | 'BOLETA' | 'OTRO' | null; docNumber: string | null;
+  expenseDate: string; vatRecoverable: boolean; netAmount: Peso; vatAmount: Peso; totalAmount: Peso; createdById: string }

@@ -248,3 +248,8 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
   .pos-cart input.money { width: 76px !important; }
   .qtybox button { width: 30px; } .qtybox input { width: 38px; }
 }
+@media (max-width: 1180px) and (min-width: 641px) {
+  .mainnav a { padding-left: 6px; padding-right: 6px; font-size: 0.88rem; }
+  .topbar { gap: 10px; padding-left: 14px; padding-right: 14px; }
+  .topbar .badge { display: none; }
+}

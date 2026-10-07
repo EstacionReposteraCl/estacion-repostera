@@ -41,7 +41,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         <div className="tile"><p>Comisiones y cargos</p><h3>{peso(t.totalCharges)}</h3></div>
         <div className="tile tile-hero"><p>Ganancia real</p><h3>{peso(t.realProfit)}</h3><p className="small">margen {pct(t.realProfit, t.netTotal)}</p></div>
       </div>
-      <p className="muted small">Solo ventas válidas{b.voided.count > 0 ? ` (${b.voided.count} anulada(s) por ${peso(b.voided.total)} no se cuentan)` : ""}. La ganancia es sobre el neto (sin IVA). Gastos fijos (arriendo, sueldos) no están incluidos.</p>
+      <p className="muted small">Solo ventas válidas{b.voided.count > 0 ? ` (${b.voided.count} anulada(s) por ${peso(b.voided.total)} no se cuentan)` : ""}. La ganancia es sobre el neto (sin IVA). Los gastos del negocio se restan más abajo, en “Utilidad del negocio”.</p>
 
       {b.byDay.length > 1 && (
         <section className="formcard rep">
@@ -81,6 +81,18 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           {b.charges.length === 0 ? <p className="muted small">Sin cargos en el período. Configura las comisiones en <Link href="/configuracion">Configuración</Link>.</p> :
             <table className="list mini"><tbody>{b.charges.map((c) => <tr key={c.type}><td>{CHG[c.type] ?? c.type}<div className="muted small">{c.count} cargo(s)</div></td><td className="num">{peso(c.amount)}</td></tr>)}</tbody></table>}</section>
       </div>
+
+      <h2 className="sect">Gastos y utilidad del negocio</h2>
+      <div className="kpis">
+        <div className="tile"><p>Ganancia real de las ventas</p><h3>{peso(t.realProfit)}</h3></div>
+        <div className="tile"><p>Gastos del período</p><h3>{peso(r.expenses.resultCost)}</h3><p className="small">{r.expenses.total !== r.expenses.resultCost ? `pagado ${peso(r.expenses.total)} · facturas a neto` : <Link href="/gastos">ver gastos</Link>}</p></div>
+        <div className="tile tile-hero"><p>Utilidad del negocio</p><h3>{r.businessProfit < 0 ? <span className="out">{peso(r.businessProfit)}</span> : peso(r.businessProfit)}</h3><p className="small">ganancia real − gastos</p></div>
+      </div>
+      {r.expenses.byCategory.length > 0 ? (
+        <div className="tablewrap"><table className="list"><thead><tr><th>Categoría</th><th className="num">Gastos</th><th className="num">Pagado</th><th className="num">En el resultado</th></tr></thead>
+          <tbody>{r.expenses.byCategory.map((c) => <tr key={c.category}><td>{c.category}</td><td className="num">{c.count}</td><td className="num">{peso(c.total)}</td><td className="num">{peso(c.resultCost)}</td></tr>)}</tbody></table></div>
+      ) : <p className="muted small">Sin gastos registrados en el período. Regístralos en <Link href="/gastos">Gastos</Link> para ver la utilidad real del negocio.</p>}
+      <p className="muted small">La utilidad no incluye el impuesto a la renta. Las compras de mercadería no son gasto: entran al inventario y se descuentan como costo cuando se venden.</p>
 
       <h2 className="sect">Inventario hoy</h2>
       <div className="kpis">

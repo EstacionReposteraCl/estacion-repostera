@@ -1,7 +1,7 @@
 {
   "name": "estacion-repostera",
   "private": true,
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Estación Repostera — primera versión funcional (Next.js 16 + Prisma 7 + Better Auth + PostgreSQL 16).",
   "engines": {
     "node": ">=22.18.0"
