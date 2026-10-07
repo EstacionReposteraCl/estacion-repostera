@@ -254,3 +254,13 @@ test('compras con centavos en Postgres real: IVA sobre el total y pur_sum/pi_sum
   assert.deepEqual(d.items.map((i) => i.lineNet), [9051, 10560]);
   assert.deepEqual([d.purchase.netAmount, d.purchase.vatAmount, d.purchase.totalAmount], [19611, 3726, 23337]);   // IVA = redondeo(19.611 × 0,19 = 3.726,09)
 });
+
+test('editar fecha/N° de una compra en Postgres real: documentKey se recalcula y el anti-duplicado funciona', async () => {
+  const p = await svc.products.save(admin, { sku: `PE-${run}`, name: `Editar ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 3000, vatTreatment: 'AFECTO' });
+  const a = await svc.purchases.register(admin, { docType: 'FACTURA', docNumber: `EA-${run}`, docDate: '2026-10-05', pricesIncludeVat: false, lines: [{ productId: p.id, quantity: '1', lineAmount: 1000 }] });
+  await svc.purchases.register(admin, { docType: 'FACTURA', docNumber: `EB-${run}`, docDate: '2026-10-05', pricesIncludeVat: false, lines: [{ productId: p.id, quantity: '1', lineAmount: 1000 }] });
+  await svc.purchases.editHeader(admin, a.id, { docDate: '2026-09-29', docNumber: `EC-${run}`, supplierId: null, note: 'corregida' });
+  const d = await svc.purchases.detail(admin, a.id);
+  assert.deepEqual([d.purchase.docDate, d.purchase.docNumber, d.purchase.note, d.purchase.totalAmount], ['2026-09-29', `EC-${run}`.toUpperCase(), 'corregida', 1190]);
+  assert.equal(await code(svc.purchases.editHeader(admin, a.id, { docDate: '2026-09-29', docNumber: `EB-${run}` })), 'DUPLICATE_DOCUMENT');
+});

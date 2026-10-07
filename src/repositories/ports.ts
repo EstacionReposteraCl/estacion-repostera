@@ -48,6 +48,8 @@ export interface Tx {
     getWithItems(id: string): Promise<{ purchase: PurchaseRecord; items: PurchaseItemRecord[] } | null>;
     /** Marca VOIDED y pone documentKey = NULL (libera el documento). */
     markVoided(id: string, v: { reason: string; userId: string; mode: 'EXACT' | 'ADJUSTED'; variance: Peso }): Promise<void>;
+    /** Corrige datos del documento (no toca montos ni inventario). */
+    updateHeader(id: string, d: { supplierId: string | null; docNumber: string | null; docDate: string; documentKey: string | null; note: string | null }): Promise<void>;
   };
   products: {
     findById(id: string): Promise<ProductWriteRow | null>;

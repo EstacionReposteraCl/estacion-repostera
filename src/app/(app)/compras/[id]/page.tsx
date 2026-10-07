@@ -5,6 +5,7 @@ import { can } from "@/core/permissions";
 import { services } from "@/server/container";
 import { AppError } from "@/core/errors";
 import { PurchaseVoid } from "@/components/purchase-void";
+import { PurchaseEdit } from "@/components/purchase-edit";
 import { peso, qty } from "@/lib/format";
 import type { VoidPlan } from "@/domain/purchases/purchases";
 
@@ -28,6 +29,9 @@ export default async function PurchasePage({ params, searchParams }: { params: P
     else if (exact.reason === "STOCK_BELOW_PURCHASED") voidUi = { mode: "blocked", variance: 0, blockedText: "No se puede anular: ya se vendió o retiró parte de lo comprado (el stock actual es menor que lo comprado). Corrige con un ajuste de inventario." };
     else { const adj = await services.purchases.previewVoid(actor, id, true); voidUi = adj.status === "ok" ? { mode: "adjusted", variance: adj.totalVariance } : { mode: "blocked", variance: 0, blockedText: "No se puede anular en este momento." }; }
   }
+  const canEdit = p.status === "CONFIRMED" && can(actor.role, "purchase.create");
+  const suppliers = canEdit ? (await services.purchases.suppliers(actor, true)).map((s) => ({ id: s.id, name: s.name, taxId: s.taxId, isActive: s.isActive })) : [];
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(new Date());
   return (
     <main className="page">
       {nueva && <p className="ok" role="status">Compra registrada. El stock y el costo promedio ya se actualizaron.</p>}
@@ -47,6 +51,7 @@ export default async function PurchasePage({ params, searchParams }: { params: P
             <td className="num">{peso(i.costBasis)}</td><td className="num hide-sm">{unitPeso(d.unitCosts[k])}</td></tr>))}</tbody>
         <tfoot><tr><th>Totales</th><th></th><th className="num">{peso(p.netAmount)}</th><th className="num hide-sm">{peso(p.vatAmount)}</th><th className="num">{peso(p.totalAmount)}</th><th className="num">{peso(d.items.reduce((s, i) => s + i.costBasis, 0))}</th><th className="hide-sm"></th></tr></tfoot>
       </table></div>
+      {canEdit && <PurchaseEdit key={`${p.docDate}|${p.docNumber}|${p.supplierId}|${p.note ?? ""}`} id={p.id} docType={p.docType} initial={{ docDate: p.docDate, docNumber: p.docNumber, supplierId: p.supplierId, note: p.note ?? null }} suppliers={suppliers} today={today} />}
       {voidUi && <div style={{ maxWidth: 760 }}><PurchaseVoid id={p.id} {...voidUi} /></div>}
     </main>
   );

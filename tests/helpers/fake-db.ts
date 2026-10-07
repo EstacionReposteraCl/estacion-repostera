@@ -148,6 +148,7 @@ export class FakeDb implements State {
           const purchase = { ...p, id: self.id('pur') }; const recs = items.map((i) => ({ ...i, id: self.id('pit'), purchaseId: purchase.id })); self.purchases.set(purchase.id, { purchase, items: recs }); return { purchase, items: recs };
         },
         async getWithItems(id) { const r = self.purchases.get(id); return r ? { purchase: { ...r.purchase }, items: r.items } : null; },
+        async updateHeader(id, d) { const r = self.purchases.get(id)!; r.purchase = { ...r.purchase, ...d }; },
         async markVoided(id, v) { const r = self.purchases.get(id)!; r.purchase = { ...r.purchase, status: 'VOIDED', documentKey: null, voidReason: v.reason, voidMode: v.mode, voidVariance: v.variance }; },
       },
       products: {

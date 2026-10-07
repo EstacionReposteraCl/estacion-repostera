@@ -126,6 +126,32 @@ export function createPurchasesService({ uow, catalog, purchases }: Deps) {
       });
     },
 
+    /**
+     * Corrige los datos del documento de una compra CONFIRMADA: fecha, N°, proveedor y nota.
+     * No toca montos, IVA ni inventario (para eso se anula y se registra de nuevo). Se valida el anti-duplicado y queda en auditoría.
+     */
+    async editHeader(actor: Actor | null, id: string, i: { docDate: string; docNumber?: string | null; supplierId?: string | null; note?: string | null }, now: Date = new Date()): Promise<void> {
+      assertCan(actor, 'purchase.create');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(i.docDate) || Number.isNaN(Date.parse(i.docDate + 'T00:00:00Z'))) throw validation('Fecha del documento inválida.');
+      const todayCl = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(now);
+      if (i.docDate > todayCl) throw validation('La fecha del documento no puede ser futura.');
+      const note = (i.note ?? '').trim(); if (note.length > 300) throw validation('Nota: máximo 300 caracteres.');
+      await uow.run(async (tx) => {
+        const cur = await tx.purchases.getWithItems(id); if (!cur) throw notFound('Compra');
+        const p = cur.purchase;
+        if (p.status !== 'CONFIRMED') throw businessRule('Una compra anulada no se puede editar.');
+        assertDocNumberRequired(p.docType, i.docNumber ?? null);
+        const docNumber = normalizeDocNumber(i.docNumber ?? null); const supplierId = i.supplierId || null;
+        const key = buildDocumentKey({ supplierId, docType: p.docType, docNumber, status: 'CONFIRMED' });
+        if (key && key !== p.documentKey) { const dup = await tx.purchases.findByDocumentKey(key); if (dup && dup.id !== id) throw duplicateDocument(dup.docDate); }
+        const after = { supplierId, docNumber, docDate: i.docDate, documentKey: key, note: note || null };
+        const before = { supplierId: p.supplierId, docNumber: p.docNumber, docDate: p.docDate, note: p.note ?? null };
+        if (before.supplierId === after.supplierId && before.docNumber === after.docNumber && before.docDate === after.docDate && before.note === after.note) return;
+        await tx.purchases.updateHeader(id, after);
+        await tx.audit.write({ action: 'purchase.edit', entity: 'Purchase', entityId: id, userId: actor.userId, before, after: { supplierId, docNumber, docDate: i.docDate, note: after.note } });
+      });
+    },
+
     /** Vista previa (no escribe). Devuelve el plan por producto: modo, valor retirado, varianza o motivo de bloqueo. */
     async previewVoid(actor: Actor | null, purchaseId: string, adjusted: boolean): Promise<VoidPlan> {
       assertCan(actor, 'purchase.void');

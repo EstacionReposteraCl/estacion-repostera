@@ -101,3 +101,22 @@ test('descuento por línea en el servicio: "20" y "12,5" %; inválidos se rechaz
   assert.equal([...db.purchases.values()][0].purchase.netAmount, 31757);
   for (const [n, d] of [['881', '100'], ['882', 'abc'], ['883', '-5']]) assert.equal(await code(svc.purchases.register(admin, fact(n, [{ productId: 'az', quantity: '1', lineAmount: 100, discount: d }]))), 'VALIDATION', d);
 });
+test('editar datos del documento: fecha, N° y proveedor; anti-duplicado; anulada no; futura no; vendedor no; auditoría', async () => {
+  const { db, svc } = world();
+  const a = await svc.purchases.register(admin, fact('100', [L('1', 1000)]));
+  await svc.purchases.register(admin, fact('200', [L('1', 1000)]));
+  const now = new Date('2026-10-07T15:00:00-03:00');
+  await svc.purchases.editHeader(admin, a.id, { docDate: '2026-09-30', docNumber: '0101', supplierId: 'sup2', note: 'fecha corregida' }, now);
+  const p = db.purchases.get(a.id)!.purchase;
+  assert.deepEqual([p.docDate, p.docNumber, p.supplierId, p.note, p.netAmount], ['2026-09-30', '101', 'sup2', 'fecha corregida', 1000]);
+  assert.equal(p.documentKey, 'sup2|FACTURA|101');
+  assert.ok(db.audit.some((x: { action: string }) => x.action === 'purchase.edit'));
+  // el N° 200 del proveedor original ya existe -> duplicado
+  const orig = [...db.purchases.values()].find((r) => r.purchase.docNumber === '200')!.purchase;
+  assert.equal(await code(svc.purchases.editHeader(admin, a.id, { docDate: '2026-09-30', docNumber: '200', supplierId: orig.supplierId }, now)), 'DUPLICATE_DOCUMENT');
+  assert.equal(await code(svc.purchases.editHeader(admin, a.id, { docDate: '2026-10-08', docNumber: '101', supplierId: 'sup2' }, now)), 'VALIDATION');
+  assert.equal(await code(svc.purchases.editHeader(admin, a.id, { docDate: '2026-10-01', docNumber: ' ', supplierId: 'sup2' }, now)), 'VALIDATION');
+  assert.equal(await code(svc.purchases.editHeader(s1, a.id, { docDate: '2026-10-01', docNumber: '101' }, now)), 'FORBIDDEN');
+  await svc.purchases.void(admin, a.id, { reason: 'x', adjusted: true });
+  assert.equal(await code(svc.purchases.editHeader(admin, a.id, { docDate: '2026-10-01', docNumber: '101' }, now)), 'BUSINESS_RULE');
+});

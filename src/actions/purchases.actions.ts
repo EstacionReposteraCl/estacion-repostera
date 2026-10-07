@@ -27,6 +27,14 @@ export async function voidPurchaseAction(id: string, reason: string, adjusted: b
   catch (e) { return { ok: false, error: toClientError(e).message }; }
 }
 
+/** Corrige fecha, N°, proveedor o nota de una compra (sin tocar montos ni inventario). */
+export async function editPurchaseHeaderAction(id: string, d: { docDate: string; docNumber: string | null; supplierId: string | null; note: string | null }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await services.purchases.editHeader(await getActor(), String(id), { docDate: String(d.docDate), docNumber: d.docNumber ? String(d.docNumber) : null, supplierId: d.supplierId ? String(d.supplierId) : null, note: d.note ? String(d.note) : null });
+    revalidatePath("/compras"); revalidatePath(`/compras/${id}`); return { ok: true };
+  } catch (e) { return { ok: false, error: toClientError(e).message }; }
+}
+
 export type SupplierState = { ok?: string; error?: string; at?: number; values?: Record<string, string> } | undefined;
 export async function saveSupplierAction(_p: SupplierState, f: FormData): Promise<SupplierState> {
   const s = (k: string) => String(f.get(k) ?? "").trim();

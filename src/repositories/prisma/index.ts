@@ -229,6 +229,7 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
           return { purchase: purchaseRecord(pur), items: recs };
         },
         async getWithItems(id) { const p = await db.purchase.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } } } }); return p ? { purchase: purchaseRecord(p), items: p.items.map(purchaseItemRecord) } : null; },
+        async updateHeader(id, d) { await db.purchase.update({ where: { id }, data: { supplierId: d.supplierId, docNumber: d.docNumber, docDate: dateOnly(d.docDate), documentKey: d.documentKey, note: d.note } }); },
         async markVoided(id, v) { await db.purchase.update({ where: { id }, data: { status: 'VOIDED', documentKey: null, voidReason: v.reason, voidedAt: new Date(), voidedById: v.userId, voidMode: v.mode, voidVariance: v.variance } }); },
       },
       products: {
