@@ -4,18 +4,30 @@ import { requireActor } from "@/lib/session";
 import { can } from "@/core/permissions";
 import { services } from "@/server/container";
 import { peso, qty } from "@/lib/format";
+import { PrintButton } from "@/components/print-button";
 
 const CHG: Record<string, string> = { PAYMENT_FEE: "Comisiones de medios de pago", CHANNEL_COMMISSION: "Comisiones de canales", CHANNEL_FIXED_FEE: "Cargos fijos de canales", SHIPPING_COST: "Envíos asumidos", OTHER: "Otros cargos" };
 const pct = (a: number, b: number) => (b ? `${(Math.round((a / b) * 1000) / 10).toLocaleString("es-CL")} %` : "—");
 const dm = (s: string) => { const [, m, d] = s.split("-"); return `${d}/${m}`; };
+const dmy = (s: string) => s.split("-").reverse().join("-");
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const lastDay = (ym: string) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
 const shift = (iso: string, days: number) => { const t = new Date(iso + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + days); return t.toISOString().slice(0, 10); };
 
-export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ desde?: string; hasta?: string }> }) {
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ desde?: string; hasta?: string; mes?: string }> }) {
   const { actor } = await requireActor();
   if (!can(actor.role, "report.financial")) redirect("/");
   const sp = await searchParams; const today = await services.reports.today(actor);
   const monthStart = today.slice(0, 8) + "01";
-  const from = sp.desde || monthStart; const to = sp.hasta || today;
+  const iso = (x?: string) => (x && /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : undefined);
+  const mes = sp.mes && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.mes) && sp.mes <= today.slice(0, 7) ? sp.mes : undefined;
+  let from = mes ? `${mes}-01` : iso(sp.desde) || monthStart; let to = mes ? (lastDay(mes) > today ? today : lastDay(mes)) : iso(sp.hasta) || today;
+  if (to > today) to = today; if (from > to) [from, to] = [to, from];
+  const isWholeMonth = from.endsWith("-01") && (to === lastDay(from.slice(0, 7)) || (to === today && from.slice(0, 7) === today.slice(0, 7)));
+  const periodTitle = isWholeMonth ? `${MESES[Number(from.slice(5, 7)) - 1].replace(/^./, (c) => c.toUpperCase())} ${from.slice(0, 4)}${to === today && to !== lastDay(from.slice(0, 7)) ? ` (al ${dmy(to)})` : ""}` : from === to ? dmy(from) : `${dmy(from)} al ${dmy(to)}`;
+  let business: { legalName: string; taxId: string | null } = { legalName: "Estación Repostera", taxId: null };
+  try { business = (await services.settings.overview(actor)).business; } catch { /* sin permiso de configuración: se usa el nombre por defecto */ }
+  const generated = new Intl.DateTimeFormat("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" }).format(new Date());
   const r = await services.reports.overview(actor, { from, to });
   const t = r.totals; const b = r.breakdown;
   const gross = t.netTotal + 0; const totalWithVat = b.byDay.reduce((a, d) => a + d.total, 0);
@@ -24,14 +36,28 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const quick = [["Hoy", today, today], ["Ayer", shift(today, -1), shift(today, -1)], ["Esta semana", weekStart, today], ["Este mes", monthStart, today], ["Mes anterior", prevMonthStart, prevMonthEnd], ["Últimos 30 días", shift(today, -29), today]] as const;
   const max = Math.max(1, ...b.byDay.map((d) => d.net));
   return (
-    <main className="page page-wide">
-      <div className="pagehead"><h1>Reportes</h1></div>
-      <div className="chips">{quick.map(([l, f, h]) => <Link key={l} className={`chip ${f === from && h === to ? "on" : ""}`} href={`/reportes?desde=${f}&hasta=${h}`}>{l}</Link>)}</div>
-      <form className="filters">
-        <label className="inline small">Desde <input type="date" name="desde" defaultValue={from} max={today} /></label>
-        <label className="inline small">Hasta <input type="date" name="hasta" defaultValue={to} max={today} /></label>
-        <button className="btn" type="submit">Ver</button>
-      </form>
+    <main className="page page-wide report-print">
+      <div className="print-head print-only">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-empresa-bn.png" alt="" width={72} height={60} />
+        <div><strong>{business.legalName}</strong>{business.taxId ? <span> · RUT {business.taxId}</span> : null}
+          <h1>Reporte de ventas y resultados</h1>
+          <p>Período: <b>{periodTitle}</b> ({dmy(from)} al {dmy(to)}) · Generado el {generated}</p></div>
+      </div>
+      <div className="pagehead noprint"><h1>Reportes</h1><PrintButton label="Imprimir reporte" /></div>
+      <div className="chips noprint">{quick.map(([l, f, h]) => <Link key={l} className={`chip ${f === from && h === to ? "on" : ""}`} href={`/reportes?desde=${f}&hasta=${h}`}>{l}</Link>)}</div>
+      <div className="filters-row noprint">
+        <form className="filters">
+          <label className="inline small">Mes <input type="month" name="mes" defaultValue={from.slice(0, 7)} max={today.slice(0, 7)} /></label>
+          <button className="btn" type="submit">Ver mes</button>
+        </form>
+        <form className="filters">
+          <label className="inline small">Desde <input type="date" name="desde" defaultValue={from} max={today} /></label>
+          <label className="inline small">Hasta <input type="date" name="hasta" defaultValue={to} max={today} /></label>
+          <button className="btn" type="submit">Ver</button>
+        </form>
+      </div>
+      <p className="rep-period noprint">Mostrando: <b>{periodTitle}</b></p>
 
       <div className="kpis">
         <div className="tile"><p>Ventas</p><h3>{t.sales.toLocaleString("es-CL")}</h3><p className="small">ticket promedio {peso(t.sales ? Math.round(totalWithVat / t.sales) : 0)}</p></div>
@@ -52,10 +78,12 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             ))}
           </div>
           <div className="bars-x"><span>{dm(b.byDay[0].date)}</span><span>{dm(b.byDay[b.byDay.length - 1].date)}</span></div>
-          <details><summary className="small">Ver como tabla</summary>
+          <details className="noprint"><summary className="small">Ver como tabla</summary>
             <div className="tablewrap"><table className="list"><thead><tr><th>Día</th><th className="num">Ventas</th><th className="num">Neto</th><th className="num">Costo</th><th className="num">Ganancia real</th></tr></thead>
               <tbody>{b.byDay.map((d) => <tr key={d.date}><td>{dm(d.date)}</td><td className="num">{d.count}</td><td className="num">{peso(d.net)}</td><td className="num">{peso(d.cost)}</td><td className="num">{peso(d.real)}</td></tr>)}</tbody></table></div>
           </details>
+          <div className="print-only"><table className="list"><thead><tr><th>Día</th><th className="num">Ventas</th><th className="num">Neto</th><th className="num">Costo</th><th className="num">Ganancia real</th></tr></thead>
+            <tbody>{b.byDay.map((d) => <tr key={d.date}><td>{dmy(d.date)}</td><td className="num">{d.count}</td><td className="num">{peso(d.net)}</td><td className="num">{peso(d.cost)}</td><td className="num">{peso(d.real)}</td></tr>)}</tbody></table></div>
         </section>
       )}
 
@@ -63,12 +91,12 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       {b.byProduct.length === 0 ? <p className="muted">Sin ventas en el período.</p> : (
         <div className="tablewrap"><table className="list">
           <thead><tr><th>Producto</th><th className="num">Cant.</th><th className="num">Neto</th><th className="num hide-sm">Costo</th><th className="num">Ganancia</th><th className="num hide-sm">Margen</th></tr></thead>
-          <tbody>{b.byProduct.slice(0, 50).map((p) => (
-            <tr key={p.productId}><td><Link href={`/productos/${p.productId}`}>{p.name}</Link><div className="muted small">{p.sku}</div></td><td className="num">{qty(p.qty)}</td><td className="num">{peso(p.net)}</td><td className="num hide-sm">{peso(p.cost)}</td>
+          <tbody>{b.byProduct.map((p, k) => (
+            <tr key={p.productId} className={k >= 50 ? "print-only-row" : undefined}><td><Link href={`/productos/${p.productId}`}>{p.name}</Link><div className="muted small">{p.sku}</div></td><td className="num">{qty(p.qty)}</td><td className="num">{peso(p.net)}</td><td className="num hide-sm">{peso(p.cost)}</td>
               <td className="num">{p.gross < 0 ? <span className="out">{peso(p.gross)}</span> : peso(p.gross)}</td><td className="num hide-sm">{pct(p.gross, p.net)}</td></tr>))}</tbody>
         </table></div>
       )}
-      {b.byProduct.length > 50 && <p className="muted small">Se muestran los 50 con más ganancia de {b.byProduct.length}.</p>}
+      {b.byProduct.length > 50 && <p className="muted small noprint">Se muestran los 50 con más ganancia de {b.byProduct.length}.</p>}
 
       <div className="grid rep-grid">
         <section className="tile"><h3>Vendedores</h3>
@@ -85,7 +113,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       <h2 className="sect">Gastos y utilidad del negocio</h2>
       <div className="kpis">
         <div className="tile"><p>Ganancia real de las ventas</p><h3>{peso(t.realProfit)}</h3></div>
-        <div className="tile"><p>Gastos del período</p><h3>{peso(r.expenses.resultCost)}</h3><p className="small">{r.expenses.total !== r.expenses.resultCost ? `pagado ${peso(r.expenses.total)} · facturas a neto` : <Link href="/gastos">ver gastos</Link>}</p></div>
+        <div className="tile"><p>Gastos del período</p><h3>{peso(r.expenses.resultCost)}</h3><p className="small">{r.expenses.total !== r.expenses.resultCost ? `pagado ${peso(r.expenses.total)} · facturas a neto` : <Link className="noprint" href="/gastos">ver gastos</Link>}</p></div>
         <div className="tile tile-hero"><p>Utilidad del negocio</p><h3>{r.businessProfit < 0 ? <span className="out">{peso(r.businessProfit)}</span> : peso(r.businessProfit)}</h3><p className="small">ganancia real − gastos</p></div>
       </div>
       {r.expenses.byCategory.length > 0 ? (
@@ -94,11 +122,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       ) : <p className="muted small">Sin gastos registrados en el período. Regístralos en <Link href="/gastos">Gastos</Link> para ver la utilidad real del negocio.</p>}
       <p className="muted small">La utilidad no incluye el impuesto a la renta. Las compras de mercadería no son gasto: entran al inventario y se descuentan como costo cuando se venden.</p>
 
-      <h2 className="sect">Inventario hoy</h2>
+      <h2 className="sect">Inventario hoy <span className="muted small" style={{ fontWeight: 400 }}>(al momento de generar el reporte)</span></h2>
       <div className="kpis">
         <div className="tile"><p>Valor del inventario (a costo)</p><h3>{peso(r.inventory.inventoryValue)}</h3></div>
         <div className="tile"><p>Productos con stock</p><h3>{r.inventory.productsWithStock}</h3></div>
-        <div className="tile"><p>Productos sin stock</p><h3>{r.inventory.productsWithoutStock}</h3><p className="small"><Link href="/inventario">Ir a inventario</Link></p></div>
+        <div className="tile"><p>Productos sin stock</p><h3>{r.inventory.productsWithoutStock}</h3><p className="small noprint"><Link href="/inventario">Ir a inventario</Link></p></div>
       </div>
       {r.inventory.lowStock.length > 0 && (<>
         <p className="muted small" style={{ marginBottom: 6 }}>Por agotarse (2 unidades o menos):</p>
