@@ -280,9 +280,14 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
   .report-print .hide-sm { display: table-cell !important; }
   .report-print table.list th, .report-print table.list td { padding: 3px 6px; }
   .report-print table.list thead { display: table-header-group; }
+  .report-print table.list tfoot { display: table-row-group; }
   .report-print tr { break-inside: avoid; }
   .report-print h2.sect { break-after: avoid; margin-top: 16px; font-size: 12pt; color: #000; }
   .report-print .bars { height: 110px; } .report-print .bar { background: #555 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .report-print .muted { color: #444 !important; }
   .report-print .tablewrap { overflow: visible !important; }
 }
+.rep-type { margin: 2px 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.rep-type > span { display: block; margin-bottom: 6px; font-weight: 600; }
+.rep-type .chips { margin-bottom: 0; }
+.chip-soft { font-size: 0.82rem; padding: 4px 10px; }
