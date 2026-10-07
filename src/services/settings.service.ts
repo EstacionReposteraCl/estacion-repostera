@@ -51,6 +51,18 @@ export function createSettingsService({ uow, settings }: Deps) {
         await tx.audit.write({ action: 'feerule.update', entity: 'FeeRule', entityId: `${i.target}:${i.targetId}`, userId: actor.userId, before, after: d });
       });
     },
+    /** Nuevo canal o medio de pago (p. ej. "Rappi" como medio de pago). El código se deriva del nombre: RAPPI, MERCADO_PAGO… */
+    async createEntry(actor: Actor | null, kind: 'channel' | 'paymentMethod', rawName: string): Promise<CatalogEntryRow> {
+      assertCan(actor, kind === 'channel' ? 'channel.write' : 'paymentmethod.write');
+      const name = rawName.trim().replace(/\s+/g, ' '); if (name.length < 2 || name.length > 40) throw validation('El nombre debe tener entre 2 y 40 caracteres.');
+      const code = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30);
+      if (!code) throw validation('El nombre debe contener letras o números.');
+      return uow.run(async (tx) => {
+        const row = await tx.settings.createEntry(kind, { code, name });
+        await tx.audit.write({ action: `${kind === 'channel' ? 'channel' : 'paymentmethod'}.create`, entity: kind === 'channel' ? 'SaleChannel' : 'PaymentMethod', entityId: row.id, userId: actor.userId, after: { code, name } });
+        return row;
+      });
+    },
     async updateEntry(actor: Actor | null, kind: 'channel' | 'paymentMethod', id: string, d: { name: string; isActive: boolean }): Promise<void> {
       assertCan(actor, kind === 'channel' ? 'channel.write' : 'paymentmethod.write');
       const name = d.name.trim(); if (name.length < 2 || name.length > 40) throw validation('El nombre debe tener entre 2 y 40 caracteres.');

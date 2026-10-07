@@ -11,10 +11,11 @@ import type { ChargeType } from "../domain/charges/charges";
 const ip = async () => (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string; code?: string };
 
-/** El cliente envía SOLO producto, cantidad y pagos (nunca precios). La clave de idempotencia la genera la caja por intento. */
+/** El cliente envía producto, cantidad y pagos. Un precio manual solo lo acepta el servicio si el actor es ADMINISTRADOR (queda auditado). */
 export async function closeSaleAction(input: SaleInput): Promise<ActionResult> {
   const clean: SaleInput = {
-    lines: input.lines.map((l) => ({ productId: String(l.productId), presentationId: l.presentationId ?? null, quantity: String(l.quantity), ...(l.unitCode ? { unitCode: String(l.unitCode) } : {}) })),
+    lines: input.lines.map((l) => ({ productId: String(l.productId), presentationId: l.presentationId ?? null, quantity: String(l.quantity), ...(l.unitCode ? { unitCode: String(l.unitCode) } : {}),
+      ...(l.manualUnitPrice !== undefined ? { manualUnitPrice: Number(l.manualUnitPrice) } : {}) })),   // el servicio solo lo acepta del ADMINISTRADOR
     channelId: String(input.channelId), payments: input.payments.map((p) => ({ methodId: String(p.methodId), amount: Number(p.amount) })),
     idempotencyKey: String(input.idempotencyKey), externalRef: input.externalRef ?? null, note: input.note ?? null,
   };

@@ -206,3 +206,23 @@ test('reportes: el desglose por día, vendedor, canal y producto cuadra con los 
   assert.equal(await code(svc.reports.overview(seller, { from: d, to: d })), 'FORBIDDEN');
   assert.equal(await code(svc.reports.overview(admin, { from: d, to: '2000-01-01' })), 'VALIDATION');
 });
+
+test('Rappi: medio de pago nuevo + precio manual del ADMINISTRADOR (auditado); comisión del canal sobre el precio real; vendedor no puede', async () => {
+  const pm = await svc.settings.createEntry(admin, 'paymentMethod', 'Rappi').catch(async () => (await svc.settings.overview(admin)).paymentMethods.find((m) => m.code === 'RAPPI')!);
+  assert.equal(pm.code, 'RAPPI'); assert.ok((await svc.sales.posOptions(seller)).methods.some((m) => m.code === 'RAPPI'));
+  const rappi = (await db.saleChannel.findUniqueOrThrow({ where: { code: 'RAPPI' } })).id;
+  await svc.settings.saveFeeRule(admin, { target: 'CHANNEL', targetId: rappi, percent: '20', fixedAmount: 0, isManualPerSale: false, isActive: true });
+  const p = await svc.products.save(admin, { sku: `RP-${run}`, name: `Rappi ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 5000, vatTreatment: 'AFECTO' });
+  await svc.inventory.openingBalance(admin, { productId: p.id, qty: '3', totalValue: 6000 });
+  const line = { productId: p.id, quantity: '1', manualUnitPrice: 6500 };
+  assert.equal(await code(svc.sales.closeSale(seller, { lines: [line], channelId: rappi, payments: [{ methodId: pm.id, amount: 6500 }], idempotencyKey: `rp-s-${run}` })), 'FORBIDDEN');
+  const s = await svc.sales.closeSale(admin, { lines: [line], channelId: rappi, payments: [{ methodId: pm.id, amount: 6500 }], idempotencyKey: `rp-${run}`, externalRef: `R-${run}` });
+  assert.equal(s.total, 6500); assert.equal(s.lines[0].unitPrice, 6500);
+  const item = await db.saleItem.findFirstOrThrow({ where: { saleId: s.id } }); assert.equal(item.isManualPrice, true);
+  const fin = await svc.sales.getSaleFinancial(admin, s.id);
+  assert.deepEqual(fin.charges.map((c) => [c.type, c.amount]), [['CHANNEL_COMMISSION', 1300]], '20 % de 6.500');
+  assert.equal(fin.financial.costOfGoodsSold, 2000); assert.equal(fin.financial.realProfit, fin.financial.netTotal - 2000 - 1300);
+  const a = await db.auditLog.findFirstOrThrow({ where: { action: 'sale.price_override', entityId: s.id } });
+  assert.deepEqual((a.metadata as { lines: { catalogPrice: number; appliedPrice: number }[] }).lines.map((l) => [l.catalogPrice, l.appliedPrice]), [[5000, 6500]]);
+  await svc.settings.saveFeeRule(admin, { target: 'CHANNEL', targetId: rappi, percent: '0', fixedAmount: 0, isManualPerSale: true, isActive: true });
+});

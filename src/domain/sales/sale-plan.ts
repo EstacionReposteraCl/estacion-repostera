@@ -32,6 +32,7 @@ export function planSale(input: SaleInput, ctx: PlanContext): SalePlan {
     if (l.discount !== undefined) throw forbidden('No se permiten descuentos.');
     const isAdmin = ctx.actor.role === 'ADMINISTRADOR';
     if (l.manualUnitPrice !== undefined && !isAdmin) throw forbidden('No puedes modificar precios.');
+    if (l.manualUnitPrice !== undefined && (!Number.isSafeInteger(l.manualUnitPrice) || l.manualUnitPrice <= 0)) throw validation('El precio manual debe ser un entero en pesos mayor que 0.');
     const p = ctx.products.get(l.productId);
     if (!p) throw validation('Producto inexistente.');
     if (!p.isActive) throw businessRule(`El producto "${p.name}" está inactivo o archivado.`);

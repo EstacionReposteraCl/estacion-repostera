@@ -304,6 +304,12 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
           await db.feeRule.upsert({ where, update: data, create: { ...where, ...data } });
           return prev ? feeRow(prev) : null;
         },
+        async createEntry(kind, d) {
+          const model = kind === 'channel' ? db.saleChannel : db.paymentMethod;
+          const max = await (model as typeof db.saleChannel).aggregate({ _max: { sortOrder: true } });
+          try { return entryRow(await (model as typeof db.saleChannel).create({ data: { code: d.code, name: d.name, sortOrder: (max._max.sortOrder ?? 0) + 1 } })); }
+          catch (e) { if (isUnique(e)) throw validation(`Ya existe ${kind === 'channel' ? 'un canal' : 'un medio de pago'} con el código ${d.code}.`); throw e; }
+        },
         async updateEntry(kind, id, d) {
           const prev = kind === 'channel' ? await db.saleChannel.findUnique({ where: { id } }) : await db.paymentMethod.findUnique({ where: { id } });
           if (!prev) return null;

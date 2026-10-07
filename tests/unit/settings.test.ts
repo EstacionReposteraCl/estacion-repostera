@@ -35,3 +35,14 @@ test('configuración: renombrar/desactivar canal valida nombre y existencia', as
   assert.equal(await code(svc.settings.updateEntry(admin, 'paymentMethod', 'ML', { name: 'xx', isActive: true })), 'NOT_FOUND');
   assert.equal(await code(svc.settings.updateEntry(admin, 'channel', 'ML', { name: 'x', isActive: true })), 'VALIDATION');
 });
+
+test('configuración: crear medio de pago deriva el código del nombre y no repite códigos', async () => {
+  const { db, svc } = world();
+  const r = await svc.settings.createEntry(admin, 'paymentMethod', '  Rappi  ');
+  assert.equal(r.code, 'RAPPI'); assert.equal(r.name, 'Rappi');
+  assert.equal((await svc.settings.createEntry(admin, 'channel', 'Tienda Pública')).code, 'TIENDA_PUBLICA');
+  assert.notEqual(await code(svc.settings.createEntry(admin, 'paymentMethod', 'rappi')), 'NONE');
+  assert.equal(await code(svc.settings.createEntry(s1, 'paymentMethod', 'Otro')), 'FORBIDDEN');
+  assert.equal(await code(svc.settings.createEntry(admin, 'paymentMethod', '!!')), 'VALIDATION');
+  assert.ok(db.audit.some((a) => a.action === 'paymentmethod.create'));
+});

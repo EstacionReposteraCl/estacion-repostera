@@ -26,3 +26,7 @@ export async function saveEntryAction(_p: SettingsState, f: FormData): Promise<S
   try { await services.settings.updateEntry(await getActor(), s(f, "kind") === "channel" ? "channel" : "paymentMethod", s(f, "id"), { name: s(f, "name"), isActive: f.get("isActive") === "on" }); return done(`“${s(f, "name")}” guardado.`); }
   catch (e) { return fail(e, f); }
 }
+export async function createEntryAction(_p: SettingsState, f: FormData): Promise<SettingsState> {
+  try { const r = await services.settings.createEntry(await getActor(), s(f, "kind") === "channel" ? "channel" : "paymentMethod", s(f, "name")); return done(`“${r.name}” agregado. Ya aparece en la caja.`); }
+  catch (e) { return fail(e, f); }
+}

@@ -185,6 +185,8 @@ export interface SettingsTx {
   updateBusiness(d: Omit<BusinessSettingsRow, 'timezone' | 'vatRate'>): Promise<BusinessSettingsRow>;
   upsertFeeRule(target: 'PAYMENT_METHOD' | 'CHANNEL', targetId: string, d: { percentMilli: number; fixedAmount: Peso; isManualPerSale: boolean; isActive: boolean; vatTreatment: FeeRuleRow['vatTreatment'] }): Promise<FeeRuleRow | null>;
   updateEntry(kind: 'channel' | 'paymentMethod', id: string, d: { name: string; isActive: boolean }): Promise<CatalogEntryRow | null>;
+  /** Alta de canal o medio de pago (al final del orden). Código único. */
+  createEntry(kind: 'channel' | 'paymentMethod', d: { code: string; name: string }): Promise<CatalogEntryRow>;
 }
 
 // ---------------------------------------------------------------- compras y proveedores (lectura; SOLO ADMINISTRADOR)

@@ -74,3 +74,7 @@ test('demanda de stock agrega líneas repetidas del mismo producto', () => {
   const p = planSale(sale([{ productId: 'harina', quantity: '1' }, { productId: 'harina', quantity: '0,5' }], 18000), ctx());
   assert.equal(p.stockDemand.get('harina'), 1500n);
 });
+
+test('precio manual (solo ADMINISTRADOR): entero en pesos mayor que 0', () => {
+  for (const bad of [0, -1, 1.5, Number.NaN]) assert.equal(code(() => planSale(sale([{ productId: 'harina', quantity: '1', manualUnitPrice: bad }], 1), ctx(admin))), 'VALIDATION');
+});

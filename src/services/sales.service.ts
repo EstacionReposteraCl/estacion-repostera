@@ -98,6 +98,9 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
           await tx.inventory.saveItemCost(item.id, -m.valueChange);
           cogs += -m.valueChange;
         }
+        const manual = items.filter((i) => i.isManualPrice);
+        if (manual.length) await tx.audit.write({ action: 'sale.price_override', entity: 'Sale', entityId: sale.id, userId: actor.userId,
+          metadata: { channelId: input.channelId, lines: manual.map((i) => ({ productId: i.productId, name: i.nameSnapshot, catalogPrice: products.get(i.productId)?.salePrice ?? null, appliedPrice: i.unitPrice })) } });
         await tx.charges.insertMany(sale.id, charges, actor.userId);
         await tx.financial.insert(sale.id, buildFinancial(plan.net, cogs, charges.map((c) => c.amount)));
         return sale.id;

@@ -169,6 +169,7 @@ export class FakeDb implements State {
       settings: {
         async updateBusiness(d) { const before = { ...self.biz }; self.biz = { ...self.biz, ...d }; return before; },
         async upsertFeeRule(target, targetId, d) { const k = `${target}:${targetId}`; const before = self.feeRows.get(k) ?? null; self.feeRows.set(k, { id: k, target, targetId, targetName: targetId, targetCode: targetId, ...d }); return before; },
+        async createEntry(kind, d) { if ([...self.entries.values()].some((e) => e.kind === kind && e.code === d.code)) throw new Error('duplicate code'); const e = { id: self.id(kind), code: d.code, name: d.name, isActive: true, sortOrder: 99, kind }; self.entries.set(e.id, e); return e; },
         async updateEntry(kind, id, d) { const e = self.entries.get(id); if (!e || e.kind !== kind) return null; const before = { ...e }; Object.assign(e, d); return before; },
       },
     };

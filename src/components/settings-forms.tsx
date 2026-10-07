@@ -1,6 +1,6 @@
 "use client";
 import { useActionState } from "react";
-import { saveBusinessAction, saveFeeRuleAction, saveEntryAction, type SettingsState } from "@/actions/settings.actions";
+import { saveBusinessAction, saveFeeRuleAction, saveEntryAction, createEntryAction, type SettingsState } from "@/actions/settings.actions";
 import type { BusinessSettingsRow, FeeRuleRow, CatalogEntryRow } from "@/repositories/ports";
 
 const Msg = ({ st }: { st: SettingsState }) => st?.error ? <p className="error" role="alert">{st.error}</p> : st?.ok ? <p className="ok" role="status" style={{ marginTop: 10 }}>{st.ok}</p> : null;
@@ -71,6 +71,17 @@ function EntryRow({ e, kind }: { e: CatalogEntryRow; kind: "channel" | "paymentM
     </li>
   );
 }
+function NewEntry({ kind }: { kind: "channel" | "paymentMethod" }) {
+  const [st, action, pending] = useActionState<SettingsState, FormData>(createEntryAction, undefined);
+  return (
+    <form action={action} className="inline" key={st?.at ?? 0} style={{ marginTop: 10 }}>
+      <input type="hidden" name="kind" value={kind} />
+      <input name="name" defaultValue={st?.error ? st.values?.name : ""} placeholder={kind === "channel" ? "Nuevo canal (ej.: Tienda web)" : "Nuevo medio de pago (ej.: Rappi)"} aria-label={kind === "channel" ? "Nuevo canal" : "Nuevo medio de pago"} style={{ width: 220 }} />
+      <button className="btn btn-small" disabled={pending}>Agregar</button>
+      {st?.error && <span className="out small">{st.error}</span>}{st?.ok && <span className="small" style={{ color: "var(--accent)" }}>{st.ok}</span>}
+    </form>
+  );
+}
 export function EntriesList({ items, kind }: { items: CatalogEntryRow[]; kind: "channel" | "paymentMethod" }) {
-  return <ul className="entries">{items.map((e) => <EntryRow key={e.id} e={e} kind={kind} />)}</ul>;
+  return <><ul className="entries">{items.map((e) => <EntryRow key={e.id} e={e} kind={kind} />)}</ul><NewEntry kind={kind} /></>;
 }

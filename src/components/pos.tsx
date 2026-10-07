@@ -9,11 +9,14 @@ import { parseQuantity } from "@/core/money/quantity";
 import { lineTotalPerBase } from "@/core/money/iva";
 
 interface Opt { id: string; code: string; name: string }
-interface Line { p: ProductPublicDTO; qty: string }
+interface Line { p: ProductPublicDTO; qty: string; price?: string }   // price: solo ADMINISTRADOR (precio manual)
 interface Pay { methodId: string; amount: string }
 const clp = (n: number) => "$" + n.toLocaleString("es-CL");
 const toInt = (s: string) => { const t = s.replace(/[.$\s]/g, ""); return /^\d+$/.test(t) ? Number(t) : NaN; };
-const lineTotal = (l: Line) => { try { return lineTotalPerBase(parseQuantity(l.qty), l.p.salePrice); } catch { return NaN; } };
+/** Precio efectivo: el manual (si el administrador lo escribió y es válido) o el del catálogo. NaN si el manual es inválido. */
+const unitPrice = (l: Line) => (l.price === undefined || l.price.trim() === "" ? l.p.salePrice : toInt(l.price) > 0 ? toInt(l.price) : NaN);
+const isManual = (l: Line) => { const u = unitPrice(l); return Number.isFinite(u) && u !== l.p.salePrice; };
+const lineTotal = (l: Line) => { try { const u = unitPrice(l); return Number.isFinite(u) ? lineTotalPerBase(parseQuantity(l.qty.replace(",", ".")), u) : NaN; } catch { return NaN; } };
 const plainQty = (t: string | null) => { if (t == null) return null; const [i, f = ""] = t.split("."); const fr = f.replace(/0+$/, ""); return fr ? `${i},${fr}` : i; };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
@@ -71,11 +74,16 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
   const setQty = (i: number, qty: string) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, qty } : l)));
   const bump = (i: number, d: number) => setLines((ls) => ls.flatMap((l, j) => { if (j !== i) return [l]; const n = Number(l.qty.replace(",", ".")); const v = (Number.isFinite(n) ? Math.floor(n) : 0) + d; return v <= 0 ? [] : [{ ...l, qty: String(v) }]; }));
 
+  /** Al elegir un canal, si existe un medio de pago con el mismo código (p. ej. RAPPI), se propone como pago. */
+  function pickChannel(id: string) {
+    setChannelId(id); const c = channels.find((x) => x.id === id); const m = methods.find((x) => x.code === c?.code);
+    if (pays.length === 1) setPays([{ methodId: m?.id ?? (c?.code === "LOCAL" ? cash?.id ?? pays[0].methodId : pays[0].methodId), amount: "" }]);
+  }
   function reset() { setLines([]); setPays([{ methodId: cash?.id ?? "", amount: "" }]); setReceived(""); setExternalRef(""); setChannelId(local?.id ?? ""); attempt.current = null; searchRef.current?.focus(); }
 
   function charge() {
     setError(null);
-    const input = { lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", ".") })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
+    const input = { lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(isAdmin && isManual(l) ? { manualUnitPrice: unitPrice(l) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
       externalRef: channel?.code !== "LOCAL" && externalRef.trim() ? externalRef.trim() : null, note: null };
     const payload = JSON.stringify(input);
     // misma venta reintentada (p. ej. se cortó la red) => MISMA clave: el servidor devuelve la venta ya creada, nunca duplica
@@ -117,7 +125,11 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
                 const lt = lineTotal(l); const over = l.p.stock !== null && Number(l.qty.replace(",", ".")) > Number(l.p.stock);
                 return (
                   <tr key={l.p.id}>
-                    <td>{l.p.name}<div className="muted small">{clp(l.p.salePrice)} c/u{over && <span className="out"> · supera el stock ({plainQty(l.p.stock)})</span>}</div></td>
+                    <td>{l.p.name}{isAdmin ? (<div className="inline small" style={{ marginTop: 4 }}>
+                      <input className="money" value={l.price ?? String(l.p.salePrice)} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} inputMode="numeric" aria-label={`Precio de ${l.p.name}`} style={{ width: 100, padding: "4px 6px" }} />
+                      <span className="muted">c/u</span>{isManual(l) && <span className="pill pill-warn" title={`Precio de catálogo: ${clp(l.p.salePrice)}`}>precio manual</span>}
+                      {isManual(l) && <button type="button" className="link small" onClick={() => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, price: undefined } : x)))}>volver a {clp(l.p.salePrice)}</button>}
+                    </div>) : <div className="muted small">{clp(l.p.salePrice)} c/u</div>}{over && <div className="out small">supera el stock ({plainQty(l.p.stock)})</div>}</td>
                     <td><div className="qtybox"><button type="button" onClick={() => bump(i, -1)} aria-label="Quitar uno">−</button>
                       <input value={l.qty} onChange={(e) => setQty(i, e.target.value)} inputMode="decimal" aria-label={`Cantidad de ${l.p.name}`} />
                       <button type="button" onClick={() => bump(i, 1)} aria-label="Agregar uno">+</button></div></td>
@@ -133,7 +145,7 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
       <aside className="pos-right">
         <div className="pos-total"><span>Total</span><strong>{clp(total)}</strong></div>
         <label htmlFor="channel">Canal</label>
-        <select id="channel" value={channelId} onChange={(e) => setChannelId(e.target.value)}>{channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <select id="channel" value={channelId} onChange={(e) => pickChannel(e.target.value)}>{channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         {channel && channel.code !== "LOCAL" && (<><label htmlFor="extref">N° de pedido ({channel.name})</label><input id="extref" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} placeholder="Opcional" /></>)}
 
         <label>Pago</label>
