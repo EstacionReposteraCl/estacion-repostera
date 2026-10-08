@@ -6,7 +6,7 @@ export interface Actor { userId: string; role: Role; email: string; branchId: st
 export const PERMISSIONS = [
   // ventas
   'sale.create', 'sale.read.own_today', 'sale.read.any', 'sale.reprint.own_today', 'sale.reprint.any', 'sale.void',
-  'sale.price_override', 'sale.discount', 'sale.charge.add', 'sale.charge.void', 'sale.return',
+  'sale.price_override', 'sale.backdate', 'sale.discount', 'sale.charge.add', 'sale.charge.void', 'sale.return',
   // catálogo e inventario
   'product.read.public', 'product.read.admin', 'product.write', 'product.archive', 'category.write', 'unit.read',
   'inventory.read.stock', 'inventory.read.cost', 'inventory.adjust', 'inventory.waste', 'inventory.cost_correction',

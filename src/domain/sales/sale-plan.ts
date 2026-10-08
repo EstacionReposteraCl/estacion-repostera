@@ -11,7 +11,9 @@ export interface CatalogProduct {
 }
 /** Lo que el cliente puede enviar. NO existe unitPrice ni discount para el vendedor: si llegan, se rechazan. */
 export interface SaleLineInput { productId: string; presentationId?: string | null; quantity: string; unitCode?: string; manualUnitPrice?: Peso; discount?: unknown }
-export interface SaleInput { lines: SaleLineInput[]; channelId: string; payments: { methodId: string; amount: Peso; reference?: string }[]; idempotencyKey: string; externalRef?: string | null; note?: string | null }
+export interface SaleInput { lines: SaleLineInput[]; channelId: string; payments: { methodId: string; amount: Peso; reference?: string }[]; idempotencyKey: string; externalRef?: string | null; note?: string | null;
+  /** Solo ADMINISTRADOR: fecha contable pasada (AAAA-MM-DD) para registrar ventas atrasadas, p. ej. comprobantes de TUU. */
+  saleDate?: string | null }
 
 export interface SaleLinePlan {
   lineNumber: number; productId: string; kind: 'GOODS' | 'SERVICE'; presentationId: string | null; presentationBaseQuantity: Milli | null;

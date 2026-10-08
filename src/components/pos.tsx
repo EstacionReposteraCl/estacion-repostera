@@ -20,7 +20,7 @@ const lineTotal = (l: Line) => { try { const u = unitPrice(l); return Number.isF
 const plainQty = (t: string | null) => { if (t == null) return null; const [i, f = ""] = t.split("."); const fr = f.replace(/0+$/, ""); return fr ? `${i},${fr}` : i; };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean }) {
+export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string }) {
   const router = useRouter();
   const local = channels.find((c) => c.code === "LOCAL") ?? channels[0];
   const cash = methods.find((m) => m.code === "CASH") ?? methods[0];
@@ -29,6 +29,9 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
   const [channelId, setChannelId] = useState(local?.id ?? ""); const [externalRef, setExternalRef] = useState("");
   const [pays, setPays] = useState<Pay[]>([{ methodId: cash?.id ?? "", amount: "" }]);
   const [received, setReceived] = useState("");
+  // Solo administrador: fecha de la venta (para pasar comprobantes atrasados de TUU). Se mantiene entre ventas.
+  const [saleDate, setSaleDate] = useState(today); const [tuuRef, setTuuRef] = useState("");
+  const backdated = isAdmin && saleDate && saleDate !== today;
   const [error, setError] = useState<string | null>(null); const [pending, start] = useTransition();
   const searchRef = useRef<HTMLInputElement>(null); const seq = useRef(0);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
@@ -84,7 +87,8 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
   function charge() {
     setError(null);
     const input = { lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(isAdmin && isManual(l) ? { manualUnitPrice: unitPrice(l) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
-      externalRef: channel?.code !== "LOCAL" && externalRef.trim() ? externalRef.trim() : null, note: null };
+      externalRef: channel?.code !== "LOCAL" && externalRef.trim() ? externalRef.trim() : backdated && tuuRef.trim() ? `TUU ${tuuRef.trim()}` : null,
+      note: backdated ? "Venta atrasada (comprobante TUU)" : null, ...(backdated ? { saleDate } : {}) };
     const payload = JSON.stringify(input);
     // misma venta reintentada (p. ej. se cortó la red) => MISMA clave: el servidor devuelve la venta ya creada, nunca duplica
     if (!attempt.current || attempt.current.payload !== payload) attempt.current = { payload, key: newKey() };
@@ -92,7 +96,7 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
     start(async () => {
       try {
         const r = await closeSaleAction({ ...input, idempotencyKey });
-        if (r.ok) { reset(); router.push(`/ventas/${r.id}?nueva=1`); return; }
+        if (r.ok) { reset(); setTuuRef(""); router.push(`/ventas/${r.id}?nueva=1`); return; }
         if (r.code === "CONFLICT") attempt.current = null;
         setError(r.error);
       } catch { setError("No hubo respuesta del servidor. Revisa la conexión y presiona Cobrar de nuevo: la venta no se duplicará."); }
@@ -143,6 +147,16 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
       </section>
 
       <aside className="pos-right">
+        {isAdmin && (
+          <div className={`pos-date ${backdated ? "is-past" : ""}`}>
+            <label htmlFor="saledate">Fecha de la venta</label>
+            <input id="saledate" type="date" value={saleDate} max={today} onChange={(e) => setSaleDate(e.target.value || today)} />
+            {backdated && (<>
+              <p className="small" style={{ margin: "6px 0" }}>⚠ Venta <b>atrasada</b>: queda con fecha {saleDate.split("-").reverse().join("-")} en reportes. El stock se descuenta hoy. <button type="button" className="link small" onClick={() => setSaleDate(today)}>Volver a hoy</button></p>
+              {channel?.code === "LOCAL" && (<><label htmlFor="tuuref">N° comprobante TUU (opcional, evita duplicarlo)</label><input id="tuuref" value={tuuRef} onChange={(e) => setTuuRef(e.target.value)} placeholder="Ej.: 10234" /></>)}
+            </>)}
+          </div>
+        )}
         <div className="pos-total"><span>Total</span><strong>{clp(total)}</strong></div>
         <label htmlFor="channel">Canal</label>
         <select id="channel" value={channelId} onChange={(e) => pickChannel(e.target.value)}>{channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -168,7 +182,7 @@ export function Pos({ channels, methods, isAdmin }: { channels: Opt[]; methods: 
           </div>
         )}
         <button className="btn btn-primary pos-charge" type="button" onClick={charge} disabled={pending || lines.length === 0 || invalidLine || !paysOk}>
-          {pending ? "Cobrando…" : `Cobrar ${clp(total)}`}
+          {pending ? "Cobrando…" : backdated ? `Registrar venta del ${saleDate.split("-").reverse().slice(0, 2).join("-")} · ${clp(total)}` : `Cobrar ${clp(total)}`}
         </button>
         {!paysOk && lines.length > 0 && !invalidLine && <p className="muted small">Los montos de pago deben sumar el total.</p>}
         {lines.length > 0 && <button type="button" className="link small" onClick={reset} disabled={pending}>Vaciar venta</button>}

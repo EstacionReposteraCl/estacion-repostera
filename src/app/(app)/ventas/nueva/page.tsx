@@ -7,7 +7,7 @@ export default async function NewSalePage() {
   const opts = await services.sales.posOptions(actor);
   return (
     <main className="page page-wide">
-      <Pos channels={opts.channels} methods={opts.methods} isAdmin={actor.role === "ADMINISTRADOR"} />
+      <Pos channels={opts.channels} methods={opts.methods} isAdmin={actor.role === "ADMINISTRADOR"} today={opts.today} />
     </main>
   );
 }

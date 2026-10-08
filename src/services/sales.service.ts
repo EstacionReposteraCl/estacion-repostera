@@ -70,7 +70,17 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
       assertChannelAndMethods(channel, input.payments.map((p) => p.methodId), methods);
       const plan = planSale(input, { actor, products, units, vatRate: settings.vatRate });
       const charges = planChargesAtClose({ total: plan.total, channelId: input.channelId, payments: input.payments, rules });
-      const soldAt = now();
+      // Venta atrasada (solo administrador): se registra con la fecha indicada; el stock y el costo se descuentan HOY (estado actual).
+      const todayStr = businessDateOf(now(), settings.timezone);
+      const backdate = input.saleDate && input.saleDate !== todayStr ? input.saleDate : null;
+      if (backdate) {
+        assertCan(actor, 'sale.backdate');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(backdate) || Number.isNaN(Date.parse(backdate + 'T00:00:00Z'))) throw validation('Fecha de la venta inválida.');
+        if (backdate > todayStr) throw validation('La fecha de la venta no puede ser futura.');
+        if (backdate < businessDateOf(new Date(now().getTime() - 400 * 86_400_000), settings.timezone)) throw validation('La fecha de la venta no puede tener más de un año.');
+      }
+      // 16:00 UTC = mediodía en Chile (12:00 o 13:00 según horario): cae siempre en el mismo día calendario
+      const soldAt = backdate ? new Date(backdate + 'T16:00:00Z') : now();
       let saleId: string;
       try { saleId = await uow.run(async (tx) => {
         const dup = await tx.sales.findByIdempotencyKey(input.idempotencyKey);
@@ -101,6 +111,7 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
         const manual = items.filter((i) => i.isManualPrice);
         if (manual.length) await tx.audit.write({ action: 'sale.price_override', entity: 'Sale', entityId: sale.id, userId: actor.userId,
           metadata: { channelId: input.channelId, lines: manual.map((i) => ({ productId: i.productId, name: i.nameSnapshot, catalogPrice: products.get(i.productId)?.salePrice ?? null, appliedPrice: i.unitPrice })) } });
+        if (backdate) await tx.audit.write({ action: 'sale.backdate', entity: 'Sale', entityId: sale.id, userId: actor.userId, metadata: { saleDate: backdate, registeredOn: todayStr, total: plan.total } });
         await tx.charges.insertMany(sale.id, charges, actor.userId);
         await tx.financial.insert(sale.id, buildFinancial(plan.net, cogs, charges.map((c) => c.amount)));
         return sale.id;

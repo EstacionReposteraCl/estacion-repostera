@@ -18,6 +18,7 @@ export async function closeSaleAction(input: SaleInput): Promise<ActionResult> {
       ...(l.manualUnitPrice !== undefined ? { manualUnitPrice: Number(l.manualUnitPrice) } : {}) })),   // el servicio solo lo acepta del ADMINISTRADOR
     channelId: String(input.channelId), payments: input.payments.map((p) => ({ methodId: String(p.methodId), amount: Number(p.amount) })),
     idempotencyKey: String(input.idempotencyKey), externalRef: input.externalRef ?? null, note: input.note ?? null,
+    ...(input.saleDate ? { saleDate: String(input.saleDate) } : {}),
   };
   try { const s = await services.sales.closeSale(await getActor(), clean); revalidatePath("/ventas"); return { ok: true, id: s.id }; }
   catch (e) { const c = toClientError(e); return { ok: false, error: c.message, code: c.code }; }

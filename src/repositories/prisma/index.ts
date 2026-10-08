@@ -15,7 +15,7 @@ import type { CatalogProduct } from '../../domain/sales/sale-plan';
 import type { UnitDef } from '../../core/money/quantity';
 import { decimalToMilli, formatQuantity } from '../../core/money/quantity';
 import type { Financial, FeeRuleDef } from '../../domain/charges/charges';
-import { validation } from '../../core/errors';
+import { validation, businessRule } from '../../core/errors';
 
 const milli = (d: Prisma.Decimal | string | null | undefined): bigint | null => (d == null ? null : decimalToMilli(typeof d === 'string' ? d : d.toFixed(3)));
 /** Con signo: los movimientos guardan cantidades negativas (salidas). */
@@ -202,9 +202,12 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
           return Number(r[0].n);
         },
         async insert(s, items, payments) {
-          const sale = await db.sale.create({ data: { branchId: s.branchId, folio: s.folio, channelId: s.channelId, status: s.status, soldAt: s.soldAt, businessDate: dateOnly(s.businessDate),
+          const sale = await (async () => { try { return await db.sale.create({ data: { branchId: s.branchId, folio: s.folio, channelId: s.channelId, status: s.status, soldAt: s.soldAt, businessDate: dateOnly(s.businessDate),
             netTotal: s.netTotal, vatTotal: s.vatTotal, total: s.total, idempotencyKey: s.idempotencyKey, createdById: s.createdById, externalRef: s.externalRef ?? null, note: s.note ?? null,
-            issuerSnapshot: s.issuerSnapshot } });
+            issuerSnapshot: s.issuerSnapshot } }); } catch (e) {
+            // n° de pedido / comprobante repetido en el mismo canal (único por canal)
+            if ((e as { code?: string }).code === 'P2002' && /externalRef/.test(JSON.stringify((e as { meta?: unknown }).meta ?? '') + String((e as Error).message))) throw businessRule('Ese N° de pedido o comprobante ya está registrado en otra venta de este canal.');
+            throw e; } })();
           const recs: SaleItemRecord[] = [];
           for (const i of items) {
             const row = await db.saleItem.create({ data: { saleId: sale.id, lineNumber: i.lineNumber, productId: i.productId, presentationId: i.presentationId, presentationProductId: i.presentationId ? i.productId : null,
