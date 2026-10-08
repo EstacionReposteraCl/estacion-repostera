@@ -391,7 +391,7 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
   const uow: UnitOfWork = {
     async run(fn) {
       for (let attempt = 1; ; attempt++) {
-        try { return await client.$transaction((db) => fn(tx(db)), { timeout: 20_000, maxWait: 10_000 }); }
+        try { return await client.$transaction((db) => fn(tx(db)), { timeout: Number(process.env.DB_TX_TIMEOUT_MS) || 20_000, maxWait: 10_000 }); }
         catch (e) {
           // reintento acotado ante interbloqueo/serialización (40P01/40001); cualquier otro error sube tal cual
           const code = (e as { code?: string; meta?: { code?: string } }).meta?.code ?? (e as { code?: string }).code;
