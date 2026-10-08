@@ -1,6 +1,6 @@
 // Repositorios EN MEMORIA para probar la orquestación de los servicios (sin Prisma, sin BD).
 // NO prueba SQL, bloqueos ni triggers: eso es trabajo de la integración contra PostgreSQL real.
-import type { ExpenseReader, ExpenseRecord, PurchaseReader, SupplierRow, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow, Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
+import type { CashOps, CashCloseRecord, ExpenseReader, ExpenseRecord, PurchaseReader, SupplierRow, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow, Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
   ProductWriteRow, ProductSaveInput, ProductSearchRow, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin } from '../../src/repositories/ports.ts';
 import type { InventoryState } from '../../src/domain/inventory/inventory.ts';
 import type { Financial, FeeRuleDef } from '../../src/domain/charges/charges.ts';
@@ -113,7 +113,23 @@ export class FakeDb implements State {
       for (const e of this.expensesMap.values()) { if (e.status !== 'CONFIRMED' || e.expenseDate < r.from || e.expenseDate > r.to) continue; const x = m.get(e.category) ?? { category: e.category, count: 0, total: 0, resultCost: 0 };
         x.count++; x.total += e.totalAmount; x.resultCost += e.vatRecoverable ? e.netAmount : e.totalAmount; m.set(e.category, x); } return [...m.values()]; },
   };
-  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, now: this.now }; }
+  /** Ventas de prueba para el cierre de caja: { date, at, total, voided?, payments: [{ code, name, amount }] }. */
+  cashSales: { date: string; at: Date; total: number; voided?: boolean; payments: { code: string; name: string; amount: number }[] }[] = [];
+  cashOps: CashOps = {
+    summary: async (_b, date, since) => {
+      const rows = this.cashSales.filter((s) => s.date === date && (!since || s.at > since)); const ok = rows.filter((s) => !s.voided);
+      const m = new Map<string, { code: string; name: string; count: number; amount: number }>();
+      for (const s of ok) for (const p of s.payments) { const x = m.get(p.code) ?? { code: p.code, name: p.name, count: 0, amount: 0 }; x.count++; x.amount += p.amount; m.set(p.code, x); }
+      const byMethod = [...m.values()].sort((a, b) => b.amount - a.amount);
+      return { salesCount: ok.length, total: ok.reduce((a, s) => a + s.total, 0), voidedCount: rows.length - ok.length, cash: m.get('CASH')?.amount ?? 0, byMethod };
+    },
+    lastClose: async (b, date) => (await this.cashOps.closes(b, { from: date, to: date, limit: 1 }))[0] ?? null,
+    closes: async (b, f) => this.audit.map((e, i) => ({ e, i })).filter(({ e }) => e.action === 'cash.close').map(({ e, i }) => {
+      const a = e.after as Omit<CashCloseRecord, 'id' | 'at' | 'userId' | 'userName'> & { closedAt: string };
+      return { ...a, id: `cc${i}`, at: new Date(a.closedAt), userId: e.userId, userName: e.userId } as CashCloseRecord;
+    }).filter((r) => r.branchId === b && r.date >= f.from && r.date <= f.to && (!f.userId || r.userId === f.userId)).reverse().slice(0, f.limit),
+  };
+  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, cash: this.cashOps, now: this.now }; }
 
   private tx(): Tx {
     const self = this;
@@ -172,6 +188,7 @@ export class FakeDb implements State {
         async sumActive(saleId) { return self.charges.filter((c) => c.saleId === saleId && !c.voidedAt).reduce((s, c) => s + c.amount, 0); },
       },
       audit: { async write(e) { self.audit.push(e); } },
+      cash: { ...self.cashOps, async lock() { /* un solo hilo en pruebas */ } },
       expenses: {
         async insert(e) { const id = self.id('exp'); const c = self.expenseCats.get(e.categoryId)!; self.expensesMap.set(id, { ...e, id, category: c.name, supplier: e.supplierId, status: 'CONFIRMED', createdBy: e.createdById, createdAt: new Date(), voidReason: null, voidedBy: null }); return { id }; },
         async findDuplicate(e) { const r = [...self.expensesMap.values()].find((x) => x.status === 'CONFIRMED' && x.supplierId === e.supplierId && x.docType === e.docType && x.docNumber?.toLowerCase() === e.docNumber.toLowerCase()); return r ? { id: r.id, expenseDate: r.expenseDate } : null; },

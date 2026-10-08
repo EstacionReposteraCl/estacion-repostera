@@ -16,12 +16,14 @@ export const PERMISSIONS = [
   'report.sales_basic', 'report.financial', 'feerule.read', 'feerule.write', 'dashboard.seller', 'dashboard.admin',
   // administración
   'user.read', 'user.write', 'settings.write', 'channel.write', 'paymentmethod.write', 'audit.read',
+  // cierre de caja: el vendedor cierra "a ciegas" (no ve el esperado ni la diferencia); el administrador revisa
+  'cash.close', 'cash.review',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 const VENDEDOR: ReadonlySet<Permission> = new Set<Permission>([
   'sale.create', 'sale.read.own_today', 'sale.reprint.own_today', 'product.read.public', 'unit.read',
-  'inventory.read.stock', 'dashboard.seller',
+  'inventory.read.stock', 'dashboard.seller', 'cash.close',
 ]);
 const ADMIN: ReadonlySet<Permission> = new Set<Permission>(PERMISSIONS);
 

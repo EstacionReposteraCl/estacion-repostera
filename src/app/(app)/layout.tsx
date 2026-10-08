@@ -11,6 +11,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/", label: "Inicio", show: true },
     { href: "/ventas/nueva", label: "Caja", show: can(actor.role, "sale.create") },
     { href: "/ventas", label: can(actor.role, "sale.read.any") ? "Ventas" : "Mis ventas", show: can(actor.role, "sale.read.own_today") },
+    { href: "/caja/cierre", label: "Cierre", show: can(actor.role, "cash.close") },
     { href: "/productos", label: "Productos", show: can(actor.role, "product.read.public") },
     { href: "/inventario", label: "Inventario", show: can(actor.role, "inventory.adjust") },
     { href: "/compras", label: "Compras", show: can(actor.role, "purchase.read") },

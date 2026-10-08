@@ -264,3 +264,22 @@ test('editar fecha/N° de una compra en Postgres real: documentKey se recalcula 
   assert.deepEqual([d.purchase.docDate, d.purchase.docNumber, d.purchase.note, d.purchase.totalAmount], ['2026-09-29', `EC-${run}`.toUpperCase(), 'corregida', 1190]);
   assert.equal(await code(svc.purchases.editHeader(admin, a.id, { docDate: '2026-09-29', docNumber: `EB-${run}` })), 'DUPLICATE_DOCUMENT');
 });
+
+test('cierre de caja en Postgres real: tramo desde el último cierre, efectivo por medio de pago, vendedor a ciegas', async () => {
+  const p = await svc.products.save(admin, { sku: `CJ-${run}`, name: `Caja ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 2000, vatTreatment: 'AFECTO' });
+  await svc.purchases.register(admin, { docType: 'OTRO', docDate: '2026-10-01', pricesIncludeVat: true, lines: [{ productId: p.id, quantity: '10', lineAmount: 10000 }] });
+  await svc.cash.close(admin, { float: 0, counted: 0 });                                  // deja el tramo vacío (corta lo de pruebas anteriores)
+  const st0 = await svc.cash.status(admin); assert.equal(st0.salesCount, 0); assert.ok(st0.since);
+  await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '2' }], channelId: ids.LOCAL, payments: [{ methodId: ids.CASH, amount: 4000 }], idempotencyKey: `cj1-${run}` });
+  await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.LOCAL, payments: [{ methodId: ids.DEBIT, amount: 2000 }], idempotencyKey: `cj2-${run}` });
+  const st = await svc.cash.status(admin);
+  assert.equal(st.salesCount, 2); assert.equal(st.summary!.cash, 4000); assert.equal(st.summary!.total, 6000); assert.equal(st.suggestedFloat, 0);
+  const sst = await svc.cash.status(seller); assert.equal(sst.summary, null); assert.equal(sst.salesCount, 2);
+  const blindRec = await svc.cash.close(seller, { float: 10000, counted: 13500, withdrawals: 0, note: 'faltan 500' });
+  assert.ok(!('diff' in blindRec)); assert.equal(blindRec.counted, 13500);
+  const h = await svc.cash.history(admin); assert.equal(h.review, true);
+  const mine = h.rows.find((r) => r.id === blindRec.id)!;
+  assert.deepEqual([mine.expectedCash, mine.diff, mine.salesCount, mine.role, mine.userName], [14000, -500, 2, 'VENDEDOR', 'Vend IT']);
+  assert.equal((await svc.cash.status(admin)).salesCount, 0, 'el siguiente tramo empieza vacío');
+  const hs = await svc.cash.history(seller); assert.equal(hs.review, false); assert.ok(hs.rows.every((r) => !('diff' in r)));
+});

@@ -9,6 +9,7 @@ import { createReportsService } from './reports.service.ts';
 import { createUsersService } from './users.service.ts';
 import { createSettingsService } from './settings.service.ts';
 import { createExpensesService } from './expenses.service.ts';
+import { createCashService } from './cash.service.ts';
 
 export function createServices(p: Ports) {
   return {
@@ -20,6 +21,7 @@ export function createServices(p: Ports) {
     users: createUsersService({ uow: p.uow, users: p.users, authAdmin: p.authAdmin }),
     settings: createSettingsService({ uow: p.uow, settings: p.settings }),
     expenses: createExpensesService({ uow: p.uow, expenses: p.expenses, catalog: p.catalog, now: p.now }),
+    cash: createCashService({ uow: p.uow, cash: p.cash, catalog: p.catalog, now: p.now }),
   };
 }
 export type Services = ReturnType<typeof createServices>;

@@ -7,7 +7,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client';
 import { prisma as defaultClient } from '../../core/db/client';
 import type {
   Ports, Tx, UnitOfWork, CatalogReader, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin,
-  PurchaseReader, SupplierRow, ExpenseReader, ExpenseRecord,
+  PurchaseReader, SupplierRow, ExpenseReader, ExpenseRecord, CashOps, CashCloseRecord,
   SettingsStore, FeeRuleRow, CatalogEntryRow, BusinessSettingsRow,
   SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, PurchaseRecord, PurchaseItemRecord, ProductSearchRow, ProductSaveInput, ProductListFilter,
 } from '../ports';
@@ -88,6 +88,38 @@ function searchRow(p: ProductFull | Omit<ProductFull, 'costs'>, admin: boolean):
     presentations: p.presentations.map((x) => ({ id: x.id, name: x.name, salePrice: x.salePrice, baseQuantity: M(x.baseQuantity) })),
     ...(admin ? { adminOnly: { inventoryValue: p.kind === 'GOODS' ? (cost?.inventoryValue ?? 0) : null, stockQty: qty } } : {}),
   };
+}
+
+type Db = PrismaClient | Prisma.TransactionClient;
+/** Cierres de caja: se leen de la bitácora (audit_logs, action = 'cash.close'); las ventas, de sales/sale_payments. */
+function cashOps(db: Db): CashOps {
+  const toRecord = (r: { id: string; at: Date; userId: string; userName: string | null; after: Record<string, unknown> }): CashCloseRecord =>
+    ({ ...(r.after as unknown as Omit<CashCloseRecord, 'id' | 'at' | 'userId' | 'userName'>), id: r.id, at: r.at, userId: r.userId, userName: r.userName ?? '—' });
+  const ops: CashOps = {
+    async summary(branchId, date, since) {
+      const [s] = await db.$queryRaw<{ n: bigint; total: bigint; voided: bigint }[]>`
+        SELECT count(*) FILTER (WHERE status = 'COMPLETED') AS n, COALESCE(sum(total) FILTER (WHERE status = 'COMPLETED'), 0)::bigint AS total, count(*) FILTER (WHERE status = 'VOIDED') AS voided
+        FROM sales WHERE "branchId" = ${branchId} AND "businessDate" = ${date}::date AND (${since}::timestamptz IS NULL OR "soldAt" > ${since}::timestamptz)`;
+      const pm = await db.$queryRaw<{ code: string; name: string; n: bigint; amount: bigint }[]>`
+        SELECT m.code, m.name, count(DISTINCT s.id) AS n, COALESCE(sum(p.amount), 0)::bigint AS amount
+        FROM sales s JOIN sale_payments p ON p."saleId" = s.id JOIN payment_methods m ON m.id = p."paymentMethodId"
+        WHERE s."branchId" = ${branchId} AND s."businessDate" = ${date}::date AND s.status = 'COMPLETED' AND (${since}::timestamptz IS NULL OR s."soldAt" > ${since}::timestamptz)
+        GROUP BY m.code, m.name ORDER BY amount DESC`;
+      const byMethod = pm.map((x) => ({ code: x.code, name: x.name, count: Number(x.n), amount: Number(x.amount) }));
+      return { salesCount: Number(s.n), total: Number(s.total), voidedCount: Number(s.voided), cash: byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0), byMethod };
+    },
+    async lastClose(branchId, date) { return (await ops.closes(branchId, { from: date, to: date, limit: 1 }))[0] ?? null; },
+    async closes(branchId, f) {
+      const rows = await db.$queryRaw<{ id: string; at: Date; userId: string; userName: string | null; after: Record<string, unknown> }[]>`
+        SELECT a.id, a."occurredAt" AS at, a."userId", u.name AS "userName", a.after
+        FROM audit_logs a LEFT JOIN users u ON u.id = a."userId"
+        WHERE a.action = 'cash.close' AND a.after->>'branchId' = ${branchId} AND a.after->>'date' BETWEEN ${f.from} AND ${f.to}
+          AND (${f.userId ?? null}::text IS NULL OR a."userId" = ${f.userId ?? null}::text)
+        ORDER BY a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
+      return rows.map(toRecord);
+    },
+  };
+  return ops;
 }
 
 export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
@@ -346,6 +378,7 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
           return { id: prev.id, code: prev.code, name: prev.name, isActive: prev.isActive, sortOrder: prev.sortOrder };
         },
       },
+      cash: { ...cashOps(db), async lock(branchId, date) { await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'cash-close:' + branchId + ':' + date}, 0))`; } },
       audit: {
         async write(e) {
           const j = (v: unknown) => (v === undefined ? undefined : (JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x))) as Prisma.InputJsonValue));
@@ -516,5 +549,5 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     },
   };
 
-  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases, expenses };
+  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases, expenses, cash: cashOps(client) };
 }

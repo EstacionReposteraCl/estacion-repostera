@@ -73,6 +73,8 @@ export interface Tx {
     sumActive(saleId: string): Promise<Peso>;
   };
   audit: { write(e: AuditEntry): Promise<void> };
+  /** Cierre de caja: bloqueo por sucursal+día y lecturas consistentes dentro de la transacción. */
+  cash: CashOps & { lock(branchId: string, date: string): Promise<void> };
   settings: SettingsTx;
   suppliers: { save(i: SupplierSaveInput): Promise<{ id: string; before: SupplierRow | null }> };
   expenses: {
@@ -180,7 +182,20 @@ export interface AuthAdmin {
   setPassword(userId: string, tempPassword: string): Promise<void>;
 }
 /** Todo lo que necesita la composición. Implementación real: src/repositories/prisma (Prisma 7). Pruebas: tests/helpers/fake-db.ts. */
-export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; now?: () => Date }
+/** Ventas válidas de un tramo del día (desde el último cierre), agrupadas por medio de pago. */
+export interface CashSummary { salesCount: number; total: Peso; cash: Peso; voidedCount: number; byMethod: { code: string; name: string; count: number; amount: Peso }[] }
+/** Un cierre de caja guardado (se registra en la bitácora de auditoría: action = 'cash.close'). */
+export interface CashCloseRecord {
+  id: string; at: Date; userId: string; userName: string; role: 'ADMINISTRADOR' | 'VENDEDOR'; branchId: string; date: string; seq: number; periodFrom: string | null;
+  float: Peso; counted: Peso; withdrawals: Peso; expectedCash: Peso; diff: Peso; salesCount: number; total: Peso; byMethod: CashSummary['byMethod']; voidedCount: number; note: string | null;
+}
+export interface CashOps {
+  /** since = momento del último cierre del día (exclusivo) o null = desde el inicio del día. */
+  summary(branchId: string, date: string, since: Date | null): Promise<CashSummary>;
+  lastClose(branchId: string, date: string): Promise<CashCloseRecord | null>;
+  closes(branchId: string, f: { from: string; to: string; userId?: string; limit: number }): Promise<CashCloseRecord[]>;
+}
+export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; now?: () => Date }
 
 // ---------------------------------------------------------------- configuración (solo ADMINISTRADOR)
 export interface BusinessSettingsRow { legalName: string; taxId: string | null; address: string | null; phone: string | null; email: string | null; receiptFooter: string | null; timezone: string; vatRate: number }

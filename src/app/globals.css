@@ -291,3 +291,15 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 .rep-type > span { display: block; margin-bottom: 6px; font-weight: 600; }
 .rep-type .chips { margin-bottom: 0; }
 .chip-soft { font-size: 0.82rem; padding: 4px 10px; }
+/* ---- cierre de caja ---- */
+.cash-calc { margin: 12px 0 4px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cash-calc > div { display: flex; justify-content: space-between; padding: 7px 12px; border-top: 1px solid var(--line); }
+.cash-calc > div:first-child { border-top: 0; }
+.cash-calc .cash-exp { background: var(--bg); font-weight: 600; }
+.cash-calc .cash-diff { font-weight: 700; font-size: 1.05rem; }
+.cash-diff.is-ok { background: #e7f6ec; color: #17602f; } .cash-diff.is-over { background: #fff6d6; color: #6b4e00; } .cash-diff.is-short { background: #fde8ee; color: #9b0c3f; }
+.money-big { font-size: 1.15rem; font-weight: 600; }
+.pill-ok { background: #e7f6ec; color: #17602f; }
+@media (prefers-color-scheme: dark) { .cash-diff.is-ok, .pill-ok { background: #173a24; color: #b9ecc8; } .cash-diff.is-over { background: #3d3210; color: #ffe08a; } .cash-diff.is-short { background: #44101f; color: #ffc2d3; } }
+/* 11 módulos del administrador (con "Cierre"): entre 1181 y 1360 px se compacta un poco */
+@media (max-width: 1360px) and (min-width: 1181px) { .mainnav a { padding-left: 6px; padding-right: 6px; font-size: 0.92rem; } .topbar { gap: 12px; } }

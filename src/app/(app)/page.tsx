@@ -8,6 +8,7 @@ const MODULES: { perm: Permission; title: string; text: string; href?: string }[
   { perm: "product.read.public", title: "Productos", text: "Catálogo, precios, códigos de barras y categorías.", href: "/productos" },
   { perm: "inventory.adjust", title: "Inventario", text: "Stock inicial y ajustes por conteo físico.", href: "/inventario" },
   { perm: "sale.create", title: "Caja", text: "Buscar o escanear, cobrar y emitir comprobante.", href: "/ventas/nueva" },
+  { perm: "cash.close", title: "Cierre de caja", text: "Cuenta el efectivo al final del día o del turno y registra el cierre.", href: "/caja/cierre" },
   { perm: "sale.read.own_today", title: "Ventas", text: "Ventas del día, comprobantes, anulaciones y cargos.", href: "/ventas" },
   { perm: "purchase.create", title: "Compras", text: "Facturas y boletas de proveedores; actualizan stock y costo.", href: "/compras" },
   { perm: "expense.write", title: "Gastos", text: "Arriendo, servicios, sueldos, publicidad y otros gastos del negocio.", href: "/gastos" },

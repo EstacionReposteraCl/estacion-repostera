@@ -9,9 +9,9 @@ import { businessDateOf } from '../../src/core/time/business-date.ts';
 const actor = (role: 'ADMINISTRADOR' | 'VENDEDOR', banned = false): Actor => ({ userId: 'u', role, email: 'e@x.cl', branchId: 'b', banned });
 
 test('el vendedor SOLO tiene la lista blanca; ningún permiso sensible', () => {
-  assert.deepEqual(permissionsOf('VENDEDOR').sort(), ['dashboard.seller', 'inventory.read.stock', 'product.read.public', 'sale.create', 'sale.read.own_today', 'sale.reprint.own_today', 'unit.read']);
+  assert.deepEqual(permissionsOf('VENDEDOR').sort(), ['cash.close', 'dashboard.seller', 'inventory.read.stock', 'product.read.public', 'sale.create', 'sale.read.own_today', 'sale.reprint.own_today', 'unit.read']);
   for (const p of ['sale.void', 'sale.price_override', 'sale.discount', 'sale.charge.add', 'sale.charge.void', 'sale.return', 'inventory.read.cost', 'inventory.adjust', 'inventory.cost_correction',
-    'purchase.read', 'purchase.create', 'purchase.void', 'report.financial', 'feerule.read', 'feerule.write', 'user.write', 'audit.read', 'product.write', 'sale.read.any'] as const)
+    'purchase.read', 'purchase.create', 'purchase.void', 'report.financial', 'feerule.read', 'feerule.write', 'user.write', 'audit.read', 'product.write', 'sale.read.any', 'cash.review'] as const)
     assert.equal(can('VENDEDOR', p), false, p);
 });
 test('el administrador tiene todos los permisos', () => assert.ok(PERMISSIONS.every((p) => can('ADMINISTRADOR', p))));
