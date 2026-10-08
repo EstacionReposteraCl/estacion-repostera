@@ -23,6 +23,7 @@ const TIPOS = [
   { id: "gastos", label: "Gastos y utilidad", title: "Gastos y utilidad del negocio" },
   { id: "compras", label: "Compras", title: "Compras a proveedores" },
   { id: "inventario", label: "Inventario valorizado", title: "Inventario valorizado" },
+  { id: "sinstock", label: "Sin stock", title: "Productos sin stock" },
 ] as const;
 type Tipo = (typeof TIPOS)[number]["id"];
 
@@ -45,24 +46,28 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
   // Solo se consulta lo que el tipo elegido necesita
   const needsOverview = tipo === "general" || tipo === "ventas" || tipo === "productos" || tipo === "gastos";
-  const [r, expenses, purchases, inventory] = await Promise.all([
+  const allGoods = async () => {
+    const rows = []; for (let page = 1; page <= 50; page++) {
+      const l = await services.products.listAdmin(actor, { status: "active", page, pageSize: 200 }); rows.push(...l.rows);
+      if (page * l.pageSize >= l.total) break;
+    }
+    return rows.filter((p) => p.kind === "GOODS");
+  };
+  const [r, expenses, purchases, inventory, noStock] = await Promise.all([
     needsOverview ? services.reports.overview(actor, { from, to }) : null,
     tipo === "gastos" ? services.expenses.list(actor, { from, to, status: "CONFIRMED" }) : null,
     tipo === "compras" ? services.purchases.list(actor, { from, to }) : null,
-    tipo === "inventario" ? (async () => {
-      const rows = []; for (let page = 1; page <= 50; page++) {
-        const l = await services.products.listAdmin(actor, { status: "active", page, pageSize: 200 }); rows.push(...l.rows);
-        if (page * l.pageSize >= l.total) break;
-      }
-      return rows.filter((p) => p.kind === "GOODS" && p.stock !== null && Number(p.stock) > 0).sort((a, b) => a.name.localeCompare(b.name, "es"));
-    })() : null,
+    tipo === "inventario" ? allGoods().then((rows) => rows.filter((p) => p.stock !== null && Number(p.stock) > 0).sort((a, b) => a.name.localeCompare(b.name, "es"))) : null,
+    // mismo criterio que el contador "Productos sin stock": activos, de inventario, con stock 0 o sin stock registrado
+    tipo === "sinstock" ? allGoods().then((rows) => rows.filter((p) => p.stock === null || Number(p.stock) <= 0)
+      .sort((a, b) => (a.category ?? "~").localeCompare(b.category ?? "~", "es") || a.name.localeCompare(b.name, "es"))) : null,
   ]);
 
   const prevMonthEnd = shift(monthStart, -1); const prevMonthStart = prevMonthEnd.slice(0, 8) + "01";
   const dow = new Date(today + "T12:00:00Z").getUTCDay(); const weekStart = shift(today, -((dow + 6) % 7));
   const quick = [["Hoy", today, today], ["Ayer", shift(today, -1), shift(today, -1)], ["Esta semana", weekStart, today], ["Este mes", monthStart, today], ["Mes anterior", prevMonthStart, prevMonthEnd], ["Últimos 30 días", shift(today, -29), today]] as const;
   const href = (o: { tipo?: string; desde?: string; hasta?: string }) => { const u = new URLSearchParams({ tipo: o.tipo ?? tipo, desde: o.desde ?? from, hasta: o.hasta ?? to }); return `/reportes?${u}`; };
-  const usesPeriod = tipo !== "inventario";
+  const usesPeriod = tipo !== "inventario" && tipo !== "sinstock";
 
   const t = r?.totals; const b = r?.breakdown;
   const totalWithVat = b ? b.byDay.reduce((a, d) => a + d.total, 0) : 0;
@@ -100,7 +105,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           </form>
         </div>
         <p className="rep-period noprint">{tipoInfo.label} · <b>{periodTitle}</b></p>
-      </>) : <p className="rep-period noprint">Inventario actual: productos activos con stock, valorizados a costo promedio. No depende de fechas.</p>}
+      </>) : <p className="rep-period noprint">{tipo === "sinstock" ? "Productos activos que hoy tienen stock 0. Para reponer, registra la compra en Compras o el conteo en Inventario." : "Inventario actual: productos activos con stock, valorizados a costo promedio. No depende de fechas."}</p>}
 
       {show.kpis && t && b && (<>
         <div className="kpis">
@@ -213,12 +218,25 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         </table></div>
       </>)}
 
+      {noStock && (<>
+        <div className="kpis"><div className="tile tile-hero"><p>Productos sin stock</p><h3>{noStock.length}</h3></div></div>
+        {noStock.length === 0 ? <p className="muted">¡Todos los productos activos tienen stock!</p> : (
+          <div className="tablewrap"><table className="list">
+            <thead><tr><th>Producto</th><th>Categoría</th><th className="hide-sm">Marca</th><th className="num">Precio venta</th><th className="noprint"></th></tr></thead>
+            <tbody>{noStock.map((p) => (
+              <tr key={p.id}><td>{p.name}<div className="muted small">{p.sku}</div></td><td>{p.category ?? "—"}</td><td className="hide-sm">{p.brand ?? "—"}</td><td className="num">{peso(p.salePrice)}</td>
+                <td className="noprint"><Link href={`/productos/${p.id}`}>Ver</Link></td></tr>))}</tbody>
+            <tfoot><tr><th colSpan={4}>Total: {noStock.length} productos sin stock</th><th className="noprint"></th></tr></tfoot>
+          </table></div>
+        )}
+      </>)}
+
       {show.invSummary && r && (<>
         <h2 className="sect">Inventario hoy <span className="muted small" style={{ fontWeight: 400 }}>(al momento de generar el reporte)</span></h2>
         <div className="kpis">
-          <div className="tile"><p>Valor del inventario (a costo)</p><h3>{peso(r.inventory.inventoryValue)}</h3></div>
+          <div className="tile"><p>Valor del inventario (a costo)</p><h3>{peso(r.inventory.inventoryValue)}</h3><p className="small noprint"><Link href={href({ tipo: "inventario" })}>Ver inventario valorizado</Link></p></div>
           <div className="tile"><p>Productos con stock</p><h3>{r.inventory.productsWithStock}</h3></div>
-          <div className="tile"><p>Productos sin stock</p><h3>{r.inventory.productsWithoutStock}</h3><p className="small noprint"><Link href={href({ tipo: "inventario" })}>Ver inventario valorizado</Link></p></div>
+          <div className="tile"><p>Productos sin stock</p><h3>{r.inventory.productsWithoutStock}</h3><p className="small noprint"><Link href={href({ tipo: "sinstock" })}>Ver cuáles son</Link></p></div>
         </div>
         {r.inventory.lowStock.length > 0 && (<>
           <p className="muted small" style={{ marginBottom: 6 }}>Por agotarse (2 unidades o menos):</p>
