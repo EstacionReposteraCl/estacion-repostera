@@ -82,6 +82,13 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
     setChannelId(id); const c = channels.find((x) => x.id === id); const m = methods.find((x) => x.code === c?.code);
     if (pays.length === 1) setPays([{ methodId: m?.id ?? (c?.code === "LOCAL" ? cash?.id ?? pays[0].methodId : pays[0].methodId), amount: "" }]);
   }
+  /** Si el medio de pago es una plataforma que también es canal (p. ej. Rappi) y el canal está en "Local", se cambia el canal:
+   *  la comisión de Rappi está configurada en el CANAL, no en el medio de pago. */
+  function pickMethod(i: number, methodId: string) {
+    setPays((ps) => ps.map((x, j) => (j === i ? { ...x, methodId } : x)));
+    const m = methods.find((x) => x.id === methodId); const ch = channels.find((c) => c.code === m?.code);
+    if (ch && channel?.code === "LOCAL") setChannelId(ch.id);
+  }
   function reset() { setLines([]); setPays([{ methodId: cash?.id ?? "", amount: "" }]); setReceived(""); setExternalRef(""); setChannelId(local?.id ?? ""); attempt.current = null; searchRef.current?.focus(); }
 
   function charge() {
@@ -165,7 +172,7 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
         <label>Pago</label>
         {pays.map((p, i) => (
           <div key={i} className="payrow">
-            <select value={p.methodId} onChange={(e) => setPays((ps) => ps.map((x, j) => (j === i ? { ...x, methodId: e.target.value } : x)))} aria-label="Medio de pago">
+            <select value={p.methodId} onChange={(e) => pickMethod(i, e.target.value)} aria-label="Medio de pago">
               {methods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
             {i === pays.length - 1 ? <span className="payauto">{clp(Math.max(payAmounts[i] || 0, 0))}</span>
