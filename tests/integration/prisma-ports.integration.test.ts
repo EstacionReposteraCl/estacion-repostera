@@ -294,3 +294,32 @@ test('apertura de caja en Postgres real: fija el fondo del cierre', async () => 
   assert.equal(r.float, 12345); assert.equal((r as { withoutOpen?: boolean }).withoutOpen, false);
   assert.equal((await svc.cash.status(admin)).open, null);
 });
+
+test('dinero disponible en Postgres real: ventas por medio de pago, comisión TUU con IVA, "pagado con", fecha anterior no cuenta, traspasos', async () => {
+  const today = await svc.expenses.today(admin);
+  const y = new Date(Date.parse(today + 'T12:00:00Z') - 86_400_000).toISOString().slice(0, 10);
+  const p = await svc.products.save(admin, { sku: `DN-${run}`, name: `Dinero ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 2000, vatTreatment: 'AFECTO' });
+  await svc.purchases.register(admin, { docType: 'OTRO', docDate: today, pricesIncludeVat: true, lines: [{ productId: p.id, quantity: '10', lineAmount: 10000 }] });   // antes del punto de partida: no cuenta
+  await svc.money.setStart(admin, { balances: { CAJA: 1000, BANCO: 50000, MP: 0, TUU: 0, RAPPI: 0 }, note: 'IT' });
+  await new Promise((r) => setTimeout(r, 20));
+  await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '2' }], channelId: ids.LOCAL, payments: [{ methodId: ids.CASH, amount: 4000 }], idempotencyKey: `dn1-${run}` });
+  await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.LOCAL, payments: [{ methodId: ids.DEBIT, amount: 2000 }], idempotencyKey: `dn2-${run}` });   // comisión 1,5% = 30 → 36 con IVA
+  const pu = await svc.purchases.register(admin, { docType: 'OTRO', docDate: today, pricesIncludeVat: true, paidFrom: 'BANCO', lines: [{ productId: p.id, quantity: '1', lineAmount: 1500 }] });
+  const cat = (await svc.expenses.categories(admin))[0];
+  await svc.expenses.create(admin, { categoryId: cat.id, description: `viejo ${run}`, expenseDate: y, totalAmount: 9999, paidFrom: 'CAJA' });          // fecha anterior: no cuenta
+  const ex = await svc.expenses.create(admin, { categoryId: cat.id, description: `film ${run}`, expenseDate: today, totalAmount: 700 });             // sin indicar
+  let st = await svc.money.status(admin);
+  const line = (a: string) => st.result!.lines.find((l) => l.account === a)!;
+  assert.equal(st.salesCount, 2);
+  assert.deepEqual([line('CAJA').expected, line('TUU').expected, line('BANCO').expected], [1000 + 4000, 2000 - 36, 50000 - 1500]);
+  assert.equal(st.result!.unassigned, 700); assert.deepEqual(st.outflows.map((o) => [o.kind, o.amount, o.paidFrom]).sort(), [['EXPENSE', 700, null], ['PURCHASE', 1500, 'BANCO']]);
+  assert.equal(st.outflows.find((o) => o.kind === 'PURCHASE')!.id, pu.id);
+  await svc.money.setSource(admin, 'EXPENSE', ex.id, 'CAJA');
+  await svc.money.addMove(admin, { date: today, from: 'TUU', to: 'BANCO', amount: 1964, note: 'abono' });
+  st = await svc.money.status(admin);
+  assert.equal(st.result!.unassigned, 0); assert.equal(line('CAJA').expected, 5000 - 700);
+  assert.deepEqual([line('TUU').expected, line('BANCO').expected], [0, 48500 + 1964]);
+  await svc.money.voidMove(admin, st.moves[0].id, 'prueba');
+  st = await svc.money.status(admin); assert.equal(st.moves[0].voided, true); assert.equal(line('TUU').expected, 1964);
+  assert.equal(await code(svc.money.status(seller)), 'FORBIDDEN');
+});

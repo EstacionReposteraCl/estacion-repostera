@@ -7,6 +7,7 @@ import type { ProductPublicDTO } from "@/dto/product.dto";
 import { planPurchaseDocument, derivedUnitCost, type EnteredCost } from "@/domain/purchases/purchases";
 import { parseMoneyCents, parsePercent } from "@/core/money/parse-money";
 import { parseQuantity } from "@/core/money/quantity";
+import { PAID_FROM, PAID_FROM_LABEL } from "@/domain/money/money";
 
 interface Sup { id: string; name: string; taxId: string | null }
 type Mode = "unit" | "line";
@@ -21,7 +22,7 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
   const router = useRouter(); const [pending, start] = useTransition(); const [error, setError] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState(""); const [newSup, setNewSup] = useState({ name: "", taxId: "" });
   const [docType, setDocType] = useState<"FACTURA" | "BOLETA" | "OTRO">("FACTURA"); const [docNumber, setDocNumber] = useState(""); const [docDate, setDocDate] = useState(today);
-  const [withVat, setWithVat] = useState(false); const [note, setNote] = useState(""); const [paperTotal, setPaperTotal] = useState("");
+  const [withVat, setWithVat] = useState(false); const [note, setNote] = useState(""); const [paidFrom, setPaidFrom] = useState(""); const [paperTotal, setPaperTotal] = useState("");
   const [q, setQ] = useState(""); const [results, setResults] = useState<ProductPublicDTO[]>([]); const [lines, setLines] = useState<Line[]>([]);
   const seq = useRef(0); const searchRef = useRef<HTMLInputElement>(null);
 
@@ -55,7 +56,7 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
     start(async () => {
       const r = await registerPurchaseAction({
         supplierId: supplierId && supplierId !== "__new" ? supplierId : null, newSupplier: supplierId === "__new" ? newSup : null,
-        docType, docNumber: docNumber || null, docDate, pricesIncludeVat: withVat, note,
+        docType, docNumber: docNumber || null, docDate, pricesIncludeVat: withVat, note, paidFrom,
         lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(l.mode === "unit" ? { unitCost: (parseMoneyCents(l.amount) ?? NaN) / 100 } : { lineAmount: (parseMoneyCents(l.amount) ?? NaN) / 100 }), ...(l.disc.trim() ? { discount: l.disc.replace("%", "").trim() } : {}) })),
       });
       if (r.ok) router.push(`/compras/${r.id}?nueva=1`); else setError(r.error);
@@ -106,12 +107,15 @@ export function PurchaseForm({ suppliers, today }: { suppliers: Sup[]; today: st
       <div className="fields" style={{ marginTop: 12 }}>
         <div className="field"><label htmlFor="pt">Total del documento en papel (para comparar)</label><input id="pt" value={paperTotal} onChange={(e) => setPaperTotal(e.target.value)} inputMode="numeric" placeholder="Opcional" />
           {diff !== null && lines.length > 0 && <p className={diff === 0 ? "hint" : "out small"} style={{ marginTop: 4 }}>{diff === 0 ? "✓ Coincide con el documento." : `Diferencia de ${clp(Math.abs(diff))} (${diff > 0 ? "el papel es mayor" : "el papel es menor"}). Revisa costos o si eran con/sin IVA.`}</p>}</div>
+        <div className="field"><label htmlFor="pf">Pagado con</label>
+          <select id="pf" value={paidFrom} onChange={(e) => setPaidFrom(e.target.value)} aria-invalid={!paidFrom}><option value="">Elige…</option>{PAID_FROM.map((k) => <option key={k} value={k}>{PAID_FROM_LABEL[k]}</option>)}</select>
+          <p className="hint" style={{ marginTop: 4 }}>Se usa en “Dinero disponible” para saber de dónde salió la plata.</p></div>
         <div className="field"><label htmlFor="nt">Nota (opcional)</label><input id="nt" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} /></div>
       </div>
       <div className="actions">
-        <button className="btn btn-primary" type="button" onClick={submit} disabled={pending || !allOk || (supplierId === "__new" && newSup.name.trim().length < 2)}>{pending ? "Registrando…" : `Registrar compra ${clp(totals.total)}`}</button>
+        <button className="btn btn-primary" type="button" onClick={submit} disabled={pending || !allOk || !paidFrom || (supplierId === "__new" && newSup.name.trim().length < 2)}>{pending ? "Registrando…" : `Registrar compra ${clp(totals.total)}`}</button>
         <Link className="btn" href="/compras">Cancelar</Link>
-        <span className="muted small">Al registrar, el stock y el costo promedio se actualizan.</span>
+        <span className="muted small">{paidFrom ? "Al registrar, el stock y el costo promedio se actualizan." : "Indica con qué se pagó la compra."}</span>
       </div>
       {error && <p className="error" role="alert">{error}</p>}
     </div>

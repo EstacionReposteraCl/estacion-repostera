@@ -3,20 +3,21 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createExpenseAction, voidExpenseAction, createExpenseCategoryAction, updateExpenseCategoryAction } from "@/actions/expenses.actions";
 import { planExpense, type ExpenseDocType } from "@/domain/expenses/expenses";
+import { PAID_FROM, PAID_FROM_LABEL } from "@/domain/money/money";
 
 const clp = (n: number) => "$" + n.toLocaleString("es-CL");
 const int = (s: string) => { const t = s.replace(/[.$\s]/g, ""); return /^\d+$/.test(t) ? Number(t) : NaN; };
 
 export function ExpenseForm({ categories, suppliers, today }: { categories: { id: string; name: string }[]; suppliers: { id: string; name: string }[]; today: string }) {
   const router = useRouter(); const [pending, start] = useTransition();
-  const [f, setF] = useState({ categoryId: categories[0]?.id ?? "", description: "", expenseDate: today, total: "", docType: "", docNumber: "", supplierId: "" });
+  const [f, setF] = useState({ categoryId: categories[0]?.id ?? "", description: "", expenseDate: today, total: "", docType: "", docNumber: "", supplierId: "", paidFrom: "" });
   const [err, setErr] = useState<string | null>(null); const [ok, setOk] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   let preview: ReturnType<typeof planExpense> | null = null; try { if (Number.isFinite(int(f.total))) preview = planExpense({ docType: (f.docType || null) as ExpenseDocType | null, totalAmount: int(f.total) }); } catch { preview = null; }
   function submit() {
     setErr(null); setOk(null);
     start(async () => {
-      const r = await createExpenseAction({ categoryId: f.categoryId, description: f.description, expenseDate: f.expenseDate, totalAmount: int(f.total), docType: (f.docType || null) as ExpenseDocType | null, docNumber: f.docNumber || null, supplierId: f.supplierId || null });
+      const r = await createExpenseAction({ categoryId: f.categoryId, description: f.description, expenseDate: f.expenseDate, totalAmount: int(f.total), docType: (f.docType || null) as ExpenseDocType | null, docNumber: f.docNumber || null, supplierId: f.supplierId || null, paidFrom: f.paidFrom });
       if (r.ok) { setOk(r.msg ?? "Listo."); setF({ ...f, description: "", total: "", docNumber: "" }); router.refresh(); } else setErr(r.error);
     });
   }
@@ -30,9 +31,12 @@ export function ExpenseForm({ categories, suppliers, today }: { categories: { id
         <div className="field"><label htmlFor="edt">Documento</label><select id="edt" value={f.docType} onChange={set("docType")}><option value="">Sin documento</option><option value="BOLETA">Boleta</option><option value="FACTURA">Factura</option><option value="OTRO">Otro</option></select></div>
         {f.docType && <div className="field"><label htmlFor="edn">N° documento{f.docType === "FACTURA" ? "" : " (opcional)"}</label><input id="edn" value={f.docNumber} onChange={set("docNumber")} /></div>}
         <div className="field"><label htmlFor="es">Proveedor (opcional)</label><select id="es" value={f.supplierId} onChange={set("supplierId")}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+        <div className="field"><label htmlFor="epf">Pagado con</label>
+          <select id="epf" value={f.paidFrom} onChange={set("paidFrom")} aria-invalid={!f.paidFrom}><option value="">Elige…</option>{PAID_FROM.map((k) => <option key={k} value={k}>{PAID_FROM_LABEL[k]}</option>)}</select>
+          <p className="hint" style={{ marginTop: 4 }}>Se usa en “Dinero disponible” para saber de dónde salió la plata.</p></div>
       </div>
       {preview && <p className="hint">{preview.vatRecoverable ? `Factura: neto ${clp(preview.netAmount)} + IVA ${clp(preview.vatAmount)} (crédito fiscal). Al resultado va el neto: ${clp(preview.resultCost)}.` : `Sin IVA recuperable: al resultado va el total, ${clp(preview.resultCost)}.`}</p>}
-      <div className="actions"><button className="btn btn-primary" onClick={submit} disabled={pending || !f.categoryId || f.description.trim().length < 2 || !preview}>{pending ? "Guardando…" : `Registrar gasto${preview ? " " + clp(preview.totalAmount) : ""}`}</button></div>
+      <div className="actions"><button className="btn btn-primary" onClick={submit} disabled={pending || !f.categoryId || !f.paidFrom || f.description.trim().length < 2 || !preview}>{pending ? "Guardando…" : `Registrar gasto${preview ? " " + clp(preview.totalAmount) : ""}`}</button></div>
       {err && <p className="error" role="alert">{err}</p>}{ok && <p className="ok" role="status" style={{ marginTop: 10 }}>{ok}</p>}
     </div>
   );

@@ -18,6 +18,8 @@ export const PERMISSIONS = [
   'user.read', 'user.write', 'settings.write', 'channel.write', 'paymentmethod.write', 'audit.read',
   // cierre de caja: el vendedor cierra "a ciegas" (no ve el esperado ni la diferencia); el administrador revisa
   'cash.close', 'cash.review',
+  // dinero disponible (punto de partida, traspasos, con qué se pagó cada compra/gasto): solo administrador
+  'money.manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

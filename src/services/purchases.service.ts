@@ -6,11 +6,12 @@ import { divRoundHalfUp } from '../core/money/rounding.ts';
 import { parsePercent } from '../core/money/parse-money.ts';
 import { buildDocumentKey, normalizeDocNumber, assertDocNumberRequired, planPurchaseDocument, planPurchaseVoid, type EnteredCost, derivedUnitCost, type DocType, type VoidPlan, type VoidItemState } from '../domain/purchases/purchases.ts';
 import { normalizeRut } from './settings.service.ts';
+import { isPaidFrom } from '../domain/money/money.ts';
 import { planInflow } from '../domain/inventory/inventory.ts';
 import type { CatalogReader, UnitOfWork, StockMovementRecord, PurchaseReader, PurchaseListRow, PurchaseDetail, SupplierRow } from '../repositories/ports.ts';
 
 export interface PurchaseLineInput { productId: string; presentationId?: string | null; quantity: string; unitCode?: string; unitCost?: number; lineAmount?: Peso; discount?: string }   // discount: "20" / "12,5" (%)   // unitCost en pesos, hasta 2 decimales (1508.5)
-export interface RegisterPurchaseInput { supplierId?: string | null; docType: DocType; docNumber?: string | null; docDate: string; pricesIncludeVat: boolean; lines: PurchaseLineInput[]; note?: string }
+export interface RegisterPurchaseInput { supplierId?: string | null; docType: DocType; docNumber?: string | null; docDate: string; pricesIncludeVat: boolean; lines: PurchaseLineInput[]; note?: string; paidFrom?: string | null }   // paidFrom: con qué se pagó (Dinero disponible)
 export interface Deps { uow: UnitOfWork; catalog: CatalogReader; purchases?: PurchaseReader }
 export interface VoidInput { adjusted: boolean; reason: string }
 
@@ -66,6 +67,7 @@ export function createPurchasesService({ uow, catalog, purchases }: Deps) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(input.docDate)) throw validation('Fecha del documento inválida.');
       if (input.lines.length === 0) throw validation('La compra debe tener al menos una línea.');
       assertDocNumberRequired(input.docType, input.docNumber ?? null);
+      if (input.paidFrom != null && !isPaidFrom(input.paidFrom)) throw validation('Indica con qué se pagó la compra.');
       const [products, units] = await Promise.all([catalog.loadProducts(input.lines.map((l) => l.productId)), catalog.loadUnits()]);
       const vatRecoverable = input.docType === 'FACTURA';
       const metas = input.lines.map((l) => {
@@ -121,7 +123,7 @@ export function createPurchasesService({ uow, catalog, purchases }: Deps) {
           await tx.inventory.appendMovement({ branchId: actor.branchId, productId: it.productId, seq: m.seq, type: 'PURCHASE', quantity: m.quantity, quantityBefore: m.qtyBefore, quantityAfter: m.qtyAfter,
             valueChange: m.valueChange, valueAfter: m.valueAfter, purchaseItemId: it.id, createdById: actor.userId });
         }
-        await tx.audit.write({ action: 'purchase.create', entity: 'Purchase', entityId: purchase.id, userId: actor.userId, after: { docType: input.docType, docNumber, total: purchase.totalAmount } });
+        await tx.audit.write({ action: 'purchase.create', entity: 'Purchase', entityId: purchase.id, userId: actor.userId, after: { docType: input.docType, docNumber, total: purchase.totalAmount, paidFrom: input.paidFrom ?? null } });
         return { id: purchase.id };
       });
     },

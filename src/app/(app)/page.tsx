@@ -12,6 +12,7 @@ const MODULES: { perm: Permission; title: string; text: string; href?: string }[
   { perm: "sale.read.own_today", title: "Ventas", text: "Ventas del día, comprobantes, anulaciones y cargos.", href: "/ventas" },
   { perm: "purchase.create", title: "Compras", text: "Facturas y boletas de proveedores; actualizan stock y costo.", href: "/compras" },
   { perm: "expense.write", title: "Gastos", text: "Arriendo, servicios, sueldos, publicidad y otros gastos del negocio.", href: "/gastos" },
+  { perm: "money.manage", title: "Dinero disponible", text: "Cuánto dinero deberías tener en caja, banco, Mercado Pago, TUU y Rappi.", href: "/dinero" },
   { perm: "report.financial", title: "Reportes", text: "Ventas, costo, ganancia real, productos, vendedores e inventario.", href: "/reportes" },
   { perm: "user.write", title: "Usuarios", text: "Crear, desactivar, roles y contraseñas temporales.", href: "/usuarios" },
   { perm: "settings.write", title: "Configuración", text: "Datos del comprobante, comisiones, canales y medios de pago.", href: "/configuracion" },

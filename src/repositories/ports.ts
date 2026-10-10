@@ -8,6 +8,7 @@ import type { SaleLinePlan } from '../domain/sales/sale-plan.ts';
 import type { InventoryState } from '../domain/inventory/inventory.ts';
 import type { DocType } from '../domain/purchases/purchases.ts';
 import type { SaleScope } from '../policies/sale.policy.ts';
+import type { Account, MoveEnd, PaidFrom, MoneyInputs } from '../domain/money/money.ts';
 
 export interface StockMovementRecord {
   branchId: string; productId: string; seq: number; type: 'SALE' | 'SALE_VOID' | 'PURCHASE' | 'PURCHASE_VOID' | 'CUSTOMER_RETURN' | 'ADJUSTMENT' | 'WASTE' | 'CORRECTION' | 'COST_CORRECTION' | 'OPENING_BALANCE';
@@ -200,7 +201,23 @@ export interface CashOps {
   closes(branchId: string, f: { from: string; to: string; userId?: string; limit: number }): Promise<CashCloseRecord[]>;
   opens(branchId: string, f: { from: string; to: string; limit: number }): Promise<CashOpenRecord[]>;
 }
-export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; now?: () => Date }
+/** Punto de partida de "Dinero disponible" (bitácora: action = 'money.start'): saldos reales contados en ese momento. */
+export interface MoneyStartRecord { id: string; at: Date; userName: string; balances: Record<Account, Peso>; note: string | null }
+/** Traspaso, retiro o aporte (bitácora: 'money.move'; se anula con 'money.move.void'). */
+export interface MoneyMoveRecord { id: string; at: Date; date: string; from: MoveEnd; to: MoveEnd; amount: Peso; note: string | null; userName: string; voided: boolean; voidReason: string | null }
+/** Compra o gasto registrado después del punto de partida, con la cuenta con que se pagó (null = sin indicar). */
+export interface MoneyOutflowRow { kind: 'PURCHASE' | 'EXPENSE'; id: string; date: string; label: string; amount: Peso; paidFrom: PaidFrom | null }
+export interface MoneyData { payments: MoneyInputs['payments']; charges: MoneyInputs['charges']; refunds: Peso; outflows: MoneyOutflowRow[]; salesCount: number }
+export interface MoneyOps {
+  lastStart(branchId: string): Promise<MoneyStartRecord | null>;
+  moves(branchId: string, since: Date): Promise<MoneyMoveRecord[]>;
+  /** Ventas (creadas después de `since`, no anuladas), sus cargos, devoluciones y compras/gastos confirmados registrados después de `since`
+   *  con fecha del documento ≥ `sinceDate` (los de fecha anterior ya estaban pagados en los saldos de partida). */
+  data(branchId: string, since: Date, sinceDate: string): Promise<MoneyData>;
+  outflowExists(kind: 'PURCHASE' | 'EXPENSE', id: string, branchId: string): Promise<boolean>;
+  moveExists(id: string, branchId: string): Promise<{ voided: boolean } | null>;
+}
+export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; money: MoneyOps; now?: () => Date }
 
 // ---------------------------------------------------------------- configuración (solo ADMINISTRADOR)
 export interface BusinessSettingsRow { legalName: string; taxId: string | null; address: string | null; phone: string | null; email: string | null; receiptFooter: string | null; timezone: string; vatRate: number }

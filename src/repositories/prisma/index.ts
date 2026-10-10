@@ -7,7 +7,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client';
 import { prisma as defaultClient } from '../../core/db/client';
 import type {
   Ports, Tx, UnitOfWork, CatalogReader, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin,
-  PurchaseReader, SupplierRow, ExpenseReader, ExpenseRecord, CashOps, CashCloseRecord, CashOpenRecord,
+  PurchaseReader, SupplierRow, ExpenseReader, ExpenseRecord, CashOps, CashCloseRecord, CashOpenRecord, MoneyOps, MoneyStartRecord, MoneyMoveRecord,
   SettingsStore, FeeRuleRow, CatalogEntryRow, BusinessSettingsRow,
   SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, PurchaseRecord, PurchaseItemRecord, ProductSearchRow, ProductSaveInput, ProductListFilter,
 } from '../ports';
@@ -16,6 +16,7 @@ import type { UnitDef } from '../../core/money/quantity';
 import { decimalToMilli, formatQuantity } from '../../core/money/quantity';
 import type { Financial, FeeRuleDef } from '../../domain/charges/charges';
 import { validation, businessRule } from '../../core/errors';
+import { isPaidFrom } from '../../domain/money/money';
 
 const milli = (d: Prisma.Decimal | string | null | undefined): bigint | null => (d == null ? null : decimalToMilli(typeof d === 'string' ? d : d.toFixed(3)));
 /** Con signo: los movimientos guardan cantidades negativas (salidas). */
@@ -125,6 +126,81 @@ function cashOps(db: Db): CashOps {
         WHERE a.action = 'cash.open' AND a.after->>'branchId' = ${branchId} AND a.after->>'date' BETWEEN ${f.from} AND ${f.to}
         ORDER BY a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
       return rows.map((r): CashOpenRecord => ({ ...(r.after as unknown as Omit<CashOpenRecord, 'id' | 'at' | 'userId' | 'userName'>), id: r.id, at: r.at, userId: r.userId, userName: r.userName ?? '—' }));
+    },
+  };
+  return ops;
+}
+
+/** "Dinero disponible": punto de partida y traspasos en la bitácora (audit_logs); ventas, compras y gastos desde sus tablas. */
+function moneyOps(db: Db): MoneyOps {
+  type Row = { id: string; at: Date; userName: string | null; after: Record<string, unknown> };
+  const ops: MoneyOps = {
+    async lastStart(branchId) {
+      const [r] = await db.$queryRaw<Row[]>`
+        SELECT a.id, a."occurredAt" AS at, u.name AS "userName", a.after FROM audit_logs a LEFT JOIN users u ON u.id = a."userId"
+        WHERE a.action = 'money.start' AND a.after->>'branchId' = ${branchId} ORDER BY a."occurredAt" DESC, a.id DESC LIMIT 1`;
+      if (!r) return null;
+      const a = r.after as { balances: MoneyStartRecord['balances']; note?: string | null; at?: string };
+      return { id: r.id, at: a.at ? new Date(a.at) : r.at, userName: r.userName ?? '—', balances: a.balances, note: a.note ?? null };
+    },
+    async moves(branchId, since) {
+      const rows = await db.$queryRaw<(Row & { voidReason: string | null; voided: boolean })[]>`
+        SELECT a.id, a."occurredAt" AS at, u.name AS "userName", a.after,
+          EXISTS (SELECT 1 FROM audit_logs v WHERE v.action = 'money.move.void' AND v."entityId" = a.id) AS voided,
+          (SELECT v.metadata->>'reason' FROM audit_logs v WHERE v.action = 'money.move.void' AND v."entityId" = a.id ORDER BY v."occurredAt" DESC LIMIT 1) AS "voidReason"
+        FROM audit_logs a LEFT JOIN users u ON u.id = a."userId"
+        WHERE a.action = 'money.move' AND a.after->>'branchId' = ${branchId} AND a."occurredAt" > ${since}
+        ORDER BY a."occurredAt" DESC, a.id DESC`;
+      return rows.map((r) => { const a = r.after as { date: string; from: MoneyMoveRecord['from']; to: MoneyMoveRecord['to']; amount: number; note?: string | null };
+        return { id: r.id, at: r.at, date: a.date, from: a.from, to: a.to, amount: a.amount, note: a.note ?? null, userName: r.userName ?? '—', voided: r.voided, voidReason: r.voidReason }; });
+    },
+    async data(branchId, since, sinceDate) {
+      const [payments, charges, refunds, outflows, count] = await Promise.all([
+        db.$queryRaw<{ methodCode: string; amount: bigint }[]>`
+          SELECT m.code AS "methodCode", sum(p.amount)::bigint AS amount FROM sales s JOIN sale_payments p ON p."saleId" = s.id JOIN payment_methods m ON m.id = p."paymentMethodId"
+          WHERE s."branchId" = ${branchId} AND s.status = 'COMPLETED' AND s."createdAt" > ${since} GROUP BY m.code`,
+        db.$queryRaw<{ paymentMethodCode: string | null; channelCode: string; mainPaymentCode: string | null; amount: bigint }[]>`
+          SELECT pm.code AS "paymentMethodCode", ch.code AS "channelCode",
+            (SELECT m2.code FROM sale_payments p2 JOIN payment_methods m2 ON m2.id = p2."paymentMethodId" WHERE p2."saleId" = s.id ORDER BY p2.amount DESC, p2.id LIMIT 1) AS "mainPaymentCode",
+            sum(c.amount)::bigint AS amount
+          FROM sale_charges c JOIN sales s ON s.id = c."saleId" JOIN sale_channels ch ON ch.id = s."channelId"
+            LEFT JOIN sale_payments p ON p.id = c."paymentId" LEFT JOIN payment_methods pm ON pm.id = p."paymentMethodId"
+          WHERE s."branchId" = ${branchId} AND s.status = 'COMPLETED' AND s."createdAt" > ${since} AND c."voidedAt" IS NULL
+          GROUP BY 1, 2, 3`,
+        db.$queryRaw<{ total: bigint | null }[]>`SELECT sum("refundTotal")::bigint AS total FROM sale_returns WHERE "branchId" = ${branchId} AND "createdAt" > ${since}`,
+        db.$queryRaw<{ kind: 'PURCHASE' | 'EXPENSE'; id: string; date: string; label: string; amount: number; paidFrom: string | null }[]>`
+          SELECT 'PURCHASE' AS kind, p.id, p."docDate"::text AS date, p."totalAmount" AS amount,
+            trim(coalesce(sp.name, 'Sin proveedor') || ' · ' || initcap(p."docType"::text) || coalesce(' ' || p."docNumber", '')) AS label,
+            coalesce((SELECT a.after->>'paidFrom' FROM audit_logs a WHERE a.action = 'money.source' AND a."entityId" = p.id ORDER BY a."occurredAt" DESC LIMIT 1),
+                     (SELECT a.after->>'paidFrom' FROM audit_logs a WHERE a.action = 'purchase.create' AND a."entityId" = p.id LIMIT 1)) AS "paidFrom"
+          FROM purchases p LEFT JOIN suppliers sp ON sp.id = p."supplierId"
+          WHERE p."branchId" = ${branchId} AND p.status = 'CONFIRMED' AND p."createdAt" > ${since} AND p."docDate" >= ${sinceDate}::date
+          UNION ALL
+          SELECT 'EXPENSE', e.id, e."expenseDate"::text, e."totalAmount", trim(ec.name || ' · ' || e.description),
+            coalesce((SELECT a.after->>'paidFrom' FROM audit_logs a WHERE a.action = 'money.source' AND a."entityId" = e.id ORDER BY a."occurredAt" DESC LIMIT 1),
+                     (SELECT a.after->>'paidFrom' FROM audit_logs a WHERE a.action = 'expense.create' AND a."entityId" = e.id LIMIT 1))
+          FROM expenses e JOIN expense_categories ec ON ec.id = e."categoryId"
+          WHERE e."branchId" = ${branchId} AND e.status = 'CONFIRMED' AND e."createdAt" > ${since} AND e."expenseDate" >= ${sinceDate}::date
+          ORDER BY 3 DESC, 2`,
+        db.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM sales WHERE "branchId" = ${branchId} AND status = 'COMPLETED' AND "createdAt" > ${since}`,
+      ]);
+      return {
+        payments: payments.map((r) => ({ methodCode: r.methodCode, amount: Number(r.amount) })),
+        charges: charges.map((r) => ({ paymentMethodCode: r.paymentMethodCode, channelCode: r.channelCode, mainPaymentCode: r.mainPaymentCode, amount: Number(r.amount) })),
+        refunds: Number(refunds[0]?.total ?? 0),
+        outflows: outflows.map((r) => ({ kind: r.kind, id: r.id, date: r.date, label: r.label, amount: Number(r.amount), paidFrom: isPaidFrom(r.paidFrom) ? r.paidFrom : null })),
+        salesCount: Number(count[0]?.n ?? 0),
+      };
+    },
+    async outflowExists(kind, id, branchId) {
+      const n = kind === 'PURCHASE' ? await db.purchase.count({ where: { id, branchId } }) : await db.expense.count({ where: { id, branchId } });
+      return n > 0;
+    },
+    async moveExists(id, branchId) {
+      const [r] = await db.$queryRaw<{ voided: boolean }[]>`
+        SELECT EXISTS (SELECT 1 FROM audit_logs v WHERE v.action = 'money.move.void' AND v."entityId" = a.id) AS voided
+        FROM audit_logs a WHERE a.id = ${id} AND a.action = 'money.move' AND a.after->>'branchId' = ${branchId}`;
+      return r ? { voided: r.voided } : null;
     },
   };
   return ops;
@@ -560,5 +636,5 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     },
   };
 
-  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases, expenses, cash: cashOps(client) };
+  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases, expenses, cash: cashOps(client), money: moneyOps(client) };
 }

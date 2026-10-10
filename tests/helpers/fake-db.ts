@@ -1,6 +1,6 @@
 // Repositorios EN MEMORIA para probar la orquestación de los servicios (sin Prisma, sin BD).
 // NO prueba SQL, bloqueos ni triggers: eso es trabajo de la integración contra PostgreSQL real.
-import type { CashOps, CashCloseRecord, CashOpenRecord, ExpenseReader, ExpenseRecord, PurchaseReader, SupplierRow, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow, Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
+import type { CashOps, MoneyOps, MoneyData, MoneyStartRecord, MoneyMoveRecord, CashCloseRecord, CashOpenRecord, ExpenseReader, ExpenseRecord, PurchaseReader, SupplierRow, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow, Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
   ProductWriteRow, ProductSaveInput, ProductSearchRow, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin } from '../../src/repositories/ports.ts';
 import type { InventoryState } from '../../src/domain/inventory/inventory.ts';
 import type { Financial, FeeRuleDef } from '../../src/domain/charges/charges.ts';
@@ -133,7 +133,23 @@ export class FakeDb implements State {
       return { ...a, id: `co${i}`, at: new Date(a.openedAt), userId: e.userId, userName: e.userId } as CashOpenRecord;
     }).filter((r) => r.branchId === b && r.date >= f.from && r.date <= f.to).reverse().slice(0, f.limit),
   };
-  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, cash: this.cashOps, now: this.now }; }
+  /** Dinero disponible: los datos de ventas/compras/gastos se fijan directamente en las pruebas; partida y traspasos salen de la bitácora. */
+  moneyData: MoneyData = { payments: [], charges: [], refunds: 0, outflows: [], salesCount: 0 };
+  moneyQueries: { since: Date; sinceDate: string }[] = [];
+  private moneyStartIndex() { let k = -1; this.audit.forEach((e, i) => { if (e.action === 'money.start') k = i; }); return k; }
+  moneyOps: MoneyOps = {
+    lastStart: async (b) => { const k = this.moneyStartIndex(); if (k < 0) return null; const a = this.audit[k].after as { branchId: string; balances: MoneyStartRecord['balances']; note: string | null; at: string };
+      return a.branchId === b ? { id: `ms${k}`, at: new Date(a.at), userName: this.audit[k].userId, balances: a.balances, note: a.note } : null; },
+    moves: async (b) => { const k = this.moneyStartIndex();
+      return this.audit.map((e, i) => ({ e, i })).filter(({ e, i }) => e.action === 'money.move' && i > k && (e.after as { branchId: string }).branchId === b).map(({ e, i }) => {
+        const a = e.after as { date: string; from: MoneyMoveRecord['from']; to: MoneyMoveRecord['to']; amount: number; note: string | null }; const v = this.audit.find((x) => x.action === 'money.move.void' && x.entityId === `mm${i}`);
+        return { id: `mm${i}`, at: this.now(), date: a.date, from: a.from, to: a.to, amount: a.amount, note: a.note, userName: e.userId, voided: !!v, voidReason: v ? (v.metadata as { reason: string }).reason : null };
+      }).reverse(); },
+    data: async (_b, since, sinceDate) => { this.moneyQueries.push({ since, sinceDate }); return this.moneyData; },
+    outflowExists: async (kind, id) => (kind === 'PURCHASE' ? this.purchases.has(id) : this.expensesMap.has(id)) || this.moneyData.outflows.some((o) => o.kind === kind && o.id === id),
+    moveExists: async (id, b) => { const i = Number(id.replace(/^mm/, '')); const e = this.audit[i]; if (!e || e.action !== 'money.move' || (e.after as { branchId: string }).branchId !== b) return null; return { voided: this.audit.some((x) => x.action === 'money.move.void' && x.entityId === id) }; },
+  };
+  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, cash: this.cashOps, money: this.moneyOps, now: this.now }; }
 
   private tx(): Tx {
     const self = this;

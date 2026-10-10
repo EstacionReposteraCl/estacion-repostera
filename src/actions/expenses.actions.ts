@@ -6,13 +6,13 @@ import { services } from "../server/container";
 import type { ExpenseInput } from "../services/expenses.service";
 
 export type ExpResult = { ok: true; msg?: string } | { ok: false; error: string };
-const done = (msg?: string): ExpResult => { revalidatePath("/gastos"); revalidatePath("/reportes"); return { ok: true, msg }; };
+const done = (msg?: string): ExpResult => { revalidatePath("/gastos"); revalidatePath("/reportes"); revalidatePath("/dinero"); return { ok: true, msg }; };
 const fail = (e: unknown): ExpResult => ({ ok: false, error: toClientError(e).message });
 
 export async function createExpenseAction(i: ExpenseInput): Promise<ExpResult> {
   try {
     await services.expenses.create(await getActor(), { categoryId: String(i.categoryId), description: String(i.description), expenseDate: String(i.expenseDate), totalAmount: Number(i.totalAmount),
-      docType: i.docType ?? null, docNumber: i.docNumber ?? null, supplierId: i.supplierId || null });
+      docType: i.docType ?? null, docNumber: i.docNumber ?? null, supplierId: i.supplierId || null, paidFrom: i.paidFrom ? String(i.paidFrom) : null });
     return done("Gasto registrado.");
   } catch (e) { return fail(e); }
 }

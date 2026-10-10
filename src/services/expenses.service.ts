@@ -3,10 +3,11 @@ import { validation, notFound, businessRule } from '../core/errors/index.ts';
 import { businessDateOf } from '../core/time/business-date.ts';
 import { planExpense, type ExpenseDocType } from '../domain/expenses/expenses.ts';
 import { normalizeDocNumber } from '../domain/purchases/purchases.ts';
+import { isPaidFrom } from '../domain/money/money.ts';
 import type { UnitOfWork, ExpenseReader, ExpenseRecord, ExpenseCategoryRow, CatalogReader } from '../repositories/ports.ts';
 
 export interface Deps { uow: UnitOfWork; expenses: ExpenseReader; catalog: CatalogReader; now?: () => Date }
-export interface ExpenseInput { categoryId: string; description: string; expenseDate: string; totalAmount: number; docType?: ExpenseDocType | null; docNumber?: string | null; supplierId?: string | null; netAmount?: number | null; vatAmount?: number | null }
+export interface ExpenseInput { categoryId: string; description: string; expenseDate: string; totalAmount: number; docType?: ExpenseDocType | null; docNumber?: string | null; supplierId?: string | null; netAmount?: number | null; vatAmount?: number | null; paidFrom?: string | null }
 
 export function createExpensesService({ uow, expenses, catalog, now = () => new Date() }: Deps) {
   const today = async () => businessDateOf(now(), (await catalog.businessSettings()).timezone);
@@ -27,6 +28,7 @@ export function createExpensesService({ uow, expenses, catalog, now = () => new 
       const description = i.description.trim(); if (description.length < 2 || description.length > 200) throw validation('Describe el gasto (entre 2 y 200 caracteres).');
       if (!isDate(i.expenseDate)) throw validation('Fecha inválida.');
       if (i.expenseDate > await today()) throw validation('La fecha del gasto no puede ser futura.');
+      if (i.paidFrom != null && !isPaidFrom(i.paidFrom)) throw validation('Indica con qué se pagó el gasto.');
       const docType = i.docType ?? null; const docNumber = normalizeDocNumber(i.docNumber ?? null);
       if (docType === 'FACTURA' && !docNumber) throw validation('La factura exige número de documento.');
       const a = planExpense({ docType, totalAmount: i.totalAmount, netAmount: i.netAmount, vatAmount: i.vatAmount });
@@ -36,7 +38,7 @@ export function createExpensesService({ uow, expenses, catalog, now = () => new 
         if (docType && docNumber) { const dup = await tx.expenses.findDuplicate({ supplierId: i.supplierId ?? null, docType, docNumber }); if (dup) throw businessRule(`Ese documento ya está registrado como gasto (del ${dup.expenseDate.split('-').reverse().join('-')}).`); }
         const r = await tx.expenses.insert({ branchId: actor.branchId, categoryId: i.categoryId, supplierId: i.supplierId ?? null, description, docType, docNumber, expenseDate: i.expenseDate,
           vatRecoverable: a.vatRecoverable, netAmount: a.netAmount, vatAmount: a.vatAmount, totalAmount: a.totalAmount, createdById: actor.userId });
-        await tx.audit.write({ action: 'expense.create', entity: 'Expense', entityId: r.id, userId: actor.userId, after: { description, total: a.totalAmount, docType, docNumber, expenseDate: i.expenseDate } });
+        await tx.audit.write({ action: 'expense.create', entity: 'Expense', entityId: r.id, userId: actor.userId, after: { description, total: a.totalAmount, docType, docNumber, expenseDate: i.expenseDate, paidFrom: i.paidFrom ?? null } });
         return r;
       });
     },

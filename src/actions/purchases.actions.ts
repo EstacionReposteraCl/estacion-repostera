@@ -14,7 +14,7 @@ export async function registerPurchaseAction(input: RegisterPurchaseInput & { ne
     let supplierId = input.supplierId ?? null;
     if (input.newSupplier?.name?.trim()) supplierId = (await services.purchases.saveSupplier(actor, { name: input.newSupplier.name, taxId: input.newSupplier.taxId ?? null })).id;
     const r = await services.purchases.register(actor, {
-      supplierId, docType: input.docType, docNumber: input.docNumber ?? null, docDate: String(input.docDate), pricesIncludeVat: Boolean(input.pricesIncludeVat), note: input.note?.trim() || undefined,
+      supplierId, docType: input.docType, docNumber: input.docNumber ?? null, docDate: String(input.docDate), pricesIncludeVat: Boolean(input.pricesIncludeVat), note: input.note?.trim() || undefined, paidFrom: input.paidFrom ? String(input.paidFrom) : null,
       lines: input.lines.map((l) => ({ productId: String(l.productId), quantity: String(l.quantity), ...(l.unitCost !== undefined ? { unitCost: Number(l.unitCost) } : { lineAmount: Number(l.lineAmount) }), ...(l.discount ? { discount: String(l.discount) } : {}) })),
     });
     revalidatePath("/compras"); revalidatePath("/productos"); revalidatePath("/inventario");
