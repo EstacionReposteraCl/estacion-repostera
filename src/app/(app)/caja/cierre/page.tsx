@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireActor } from "@/lib/session";
 import { services } from "@/server/container";
 import { peso } from "@/lib/format";
-import { CashCloseForm } from "@/components/cash-close-form";
+import { CashCloseForm, CashOpenForm } from "@/components/cash-close-form";
 import { PrintButton } from "@/components/print-button";
 import type { CashCloseRecord } from "@/repositories/ports";
 import type { BlindClose } from "@/services/cash.service";
@@ -41,6 +41,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
             <div>{dmy(r.date)} · {hm(r.at)}</div>
             <div>Cerrado por: {r.userName}</div>
             {isFull(r) && <div>Desde: {r.periodFrom ? `cierre anterior (${hm(new Date(r.periodFrom))})` : "inicio del día"}</div>}
+            {isFull(r) && (r.openedBy ? <div>Abrió: {r.openedBy}{r.openedAt ? ` · ${hm(new Date(r.openedAt))}` : ""}</div> : <div>(sin apertura registrada)</div>)}
           </header>
           {isFull(r) && (<>
             <table><tbody>
@@ -83,7 +84,13 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
         </div>
       ) : <p className="tile" style={{ maxWidth: 640 }}>Ventas registradas en este turno: <b>{st.salesCount}</b></p>}
 
-      <CashCloseForm review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} />
+      {st.open ? (
+        <p className="ok" role="status" style={{ maxWidth: 640 }}>Caja abierta por <b>{st.open.userName}</b> a las {hm(st.open.at)} con un fondo de <b>{peso(st.open.float)}</b>.</p>
+      ) : (<>
+        <CashOpenForm suggestedFloat={st.suggestedFloat} />
+        <p className="muted small" style={{ maxWidth: 640 }}>⚠ La caja no está abierta. Puedes vender igual; al abrir, las ventas de hoy quedan en este turno. Si cierras sin abrir, el fondo inicial lo escribes al cerrar.</p>
+      </>)}
+      <CashCloseForm key={st.open?.id ?? "sin-apertura"} review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} openFloat={st.open?.float ?? null} />
 
       <h2 className="sect">{st.review ? "Cierres registrados" : "Mis cierres de hoy"}</h2>
       {st.review && (
@@ -99,7 +106,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
           <tbody>{(h.rows as (CashCloseRecord | BlindClose)[]).map((r) => (
             <tr key={r.id}><td>{dmy(r.date)} {hm(r.at)}<div className="muted small">N° {r.seq}</div></td><td>{r.userName}{isFull(r) && r.role === "VENDEDOR" && <div className="muted small">vendedor</div>}</td>
               <td className="num">{r.salesCount}</td>{isFull(r) && <td className="num">{peso(r.expectedCash)}</td>}<td className="num">{peso(r.counted)}</td>
-              {isFull(r) && <td><DiffPill diff={r.diff} />{r.note && <div className="muted small">{r.note}</div>}</td>}
+              {isFull(r) && <td><DiffPill diff={r.diff} />{r.withoutOpen === false && r.openedBy ? <div className="muted small">abrió {r.openedBy}</div> : null}{r.note && <div className="muted small">{r.note}</div>}</td>}
               <td><Link href={`/caja/cierre?ver=${encodeURIComponent(r.id)}&fecha=${r.date}`}>Ver / imprimir</Link></td></tr>))}</tbody>
         </table></div>
       )}

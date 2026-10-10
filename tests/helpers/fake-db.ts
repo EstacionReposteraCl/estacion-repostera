@@ -1,6 +1,6 @@
 // Repositorios EN MEMORIA para probar la orquestación de los servicios (sin Prisma, sin BD).
 // NO prueba SQL, bloqueos ni triggers: eso es trabajo de la integración contra PostgreSQL real.
-import type { CashOps, CashCloseRecord, ExpenseReader, ExpenseRecord, PurchaseReader, SupplierRow, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow, Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
+import type { CashOps, CashCloseRecord, CashOpenRecord, ExpenseReader, ExpenseRecord, PurchaseReader, SupplierRow, SettingsStore, BusinessSettingsRow, FeeRuleRow, CatalogEntryRow, Ports, Tx, UnitOfWork, CatalogReader, SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, AuditEntry, PurchaseRecord, PurchaseItemRecord,
   ProductWriteRow, ProductSaveInput, ProductSearchRow, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin } from '../../src/repositories/ports.ts';
 import type { InventoryState } from '../../src/domain/inventory/inventory.ts';
 import type { Financial, FeeRuleDef } from '../../src/domain/charges/charges.ts';
@@ -128,6 +128,10 @@ export class FakeDb implements State {
       const a = e.after as Omit<CashCloseRecord, 'id' | 'at' | 'userId' | 'userName'> & { closedAt: string };
       return { ...a, id: `cc${i}`, at: new Date(a.closedAt), userId: e.userId, userName: e.userId } as CashCloseRecord;
     }).filter((r) => r.branchId === b && r.date >= f.from && r.date <= f.to && (!f.userId || r.userId === f.userId)).reverse().slice(0, f.limit),
+    opens: async (b, f) => this.audit.map((e, i) => ({ e, i })).filter(({ e }) => e.action === 'cash.open').map(({ e, i }) => {
+      const a = e.after as Omit<CashOpenRecord, 'id' | 'at' | 'userId' | 'userName'> & { openedAt: string };
+      return { ...a, id: `co${i}`, at: new Date(a.openedAt), userId: e.userId, userName: e.userId } as CashOpenRecord;
+    }).filter((r) => r.branchId === b && r.date >= f.from && r.date <= f.to).reverse().slice(0, f.limit),
   };
   get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, cash: this.cashOps, now: this.now }; }
 

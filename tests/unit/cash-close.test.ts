@@ -54,3 +54,25 @@ test('validaciones: montos enteros ≥ 0, nota máx. 300; sin sesión no', async
   assert.equal(await code(svc.cash.close(null, { float: 0, counted: 0 })), 'UNAUTHENTICATED');
   assert.equal(await code(svc.cash.history(admin, { from: '2026-10-08', to: '2026-10-01' })), 'VALIDATION');
 });
+
+test('apertura: fija el fondo para el cierre (el monto escrito al cerrar se ignora); no se abre dos veces; tras cerrar se puede volver a abrir', async () => {
+  const { svc, setClock } = setup();
+  setClock(T('09:00'));
+  const o = await svc.cash.open(s1, { float: 15000 });
+  assert.equal(o.float, 15000);
+  assert.equal(await code(svc.cash.open(admin, { float: 1 })), 'BUSINESS_RULE');
+  setClock(T('20:00'));
+  const st = await svc.cash.status(admin); assert.equal(st.open?.float, 15000); assert.equal(st.suggestedFloat, 15000);
+  const r = await svc.cash.close(admin, { float: 999999, counted: 23000 }) as CashCloseRecord;
+  assert.equal(r.float, 15000); assert.equal(r.expectedCash, 23000); assert.equal(r.diff, 0); assert.equal(r.withoutOpen, false);
+  assert.equal((await svc.cash.status(admin)).open, null, 'tras el cierre no hay apertura vigente');
+  setClock(T('20:30'));
+  await svc.cash.open(admin, { float: 5000 });
+  assert.equal((await svc.cash.status(admin)).open?.float, 5000);
+});
+test('cierre sin apertura: usa el fondo escrito y queda marcado', async () => {
+  const { svc } = setup();
+  const r = await svc.cash.close(admin, { float: 1000, counted: 9000 }) as CashCloseRecord;
+  assert.equal(r.withoutOpen, true); assert.equal(r.expectedCash, 9000);
+  assert.equal(await code(svc.cash.open(admin, { float: -5 })), 'VALIDATION');
+});

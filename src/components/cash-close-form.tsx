@@ -1,7 +1,7 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { closeCashAction } from "@/actions/cash.actions";
+import { closeCashAction, openCashAction } from "@/actions/cash.actions";
 import { parseMoneyCents } from "@/core/money/parse-money";
 
 const clp = (n: number) => (n < 0 ? "−$" : "$") + Math.abs(n).toLocaleString("es-CL");
@@ -9,10 +9,10 @@ const clp = (n: number) => (n < 0 ? "−$" : "$") + Math.abs(n).toLocaleString("
 const pesos = (s: string) => { if (!s.trim()) return 0; const c = parseMoneyCents(s); return c === null || c % 100 !== 0 ? null : c / 100; };
 
 /** review = administrador: ve el esperado y la diferencia mientras escribe. Vendedor: conteo a ciegas. */
-export function CashCloseForm({ review, suggestedFloat, cashSales }: { review: boolean; suggestedFloat: number; cashSales: number | null }) {
+export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat }: { review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
-  const [v, setV] = useState({ float: suggestedFloat ? suggestedFloat.toLocaleString("es-CL") : "", withdrawals: "", counted: "", note: "" });
-  const f = pesos(v.float), w = pesos(v.withdrawals), c = v.counted.trim() ? pesos(v.counted) : null;
+  const [v, setV] = useState({ float: (openFloat ?? suggestedFloat) ? (openFloat ?? suggestedFloat).toLocaleString("es-CL") : "", withdrawals: "", counted: "", note: "" });
+  const f = openFloat ?? pesos(v.float), w = pesos(v.withdrawals), c = v.counted.trim() ? pesos(v.counted) : null;
   const ok = f !== null && w !== null && c !== null;
   const expected = review && cashSales !== null && f !== null && w !== null ? f + cashSales - w : null;
   const diff = expected !== null && c !== null ? c - expected : null;
@@ -30,7 +30,10 @@ export function CashCloseForm({ review, suggestedFloat, cashSales }: { review: b
     <div className="formcard" style={{ maxWidth: 640 }}>
       <h2 className="sect" style={{ marginTop: 0 }}>Contar la caja</h2>
       <div className="fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-        <div className="field"><label htmlFor="cc-float">Fondo inicial (sencillo con que partió la caja)</label><input id="cc-float" inputMode="numeric" value={v.float} onChange={(e) => setV({ ...v, float: e.target.value })} placeholder="$ 0" />{bad(f, v.float)}</div>
+        <div className="field"><label htmlFor="cc-float">Fondo inicial (sencillo con que partió la caja)</label>
+          {openFloat !== null ? <input id="cc-float" value={clp(openFloat)} readOnly aria-describedby="cc-float-h" title="Fijado en la apertura" />
+            : <input id="cc-float" inputMode="numeric" value={v.float} onChange={(e) => setV({ ...v, float: e.target.value })} placeholder="$ 0" />}
+          {openFloat !== null ? <span id="cc-float-h" className="muted small">fijado en la apertura</span> : bad(f, v.float)}</div>
         <div className="field"><label htmlFor="cc-w">Retiros o pagos hechos con efectivo de la caja</label><input id="cc-w" inputMode="numeric" value={v.withdrawals} onChange={(e) => setV({ ...v, withdrawals: e.target.value })} placeholder="$ 0" />{bad(w, v.withdrawals)}</div>
         <div className="field"><label htmlFor="cc-c"><b>Efectivo contado</b> (todo lo que hay en la caja ahora)</label><input id="cc-c" inputMode="numeric" value={v.counted} onChange={(e) => setV({ ...v, counted: e.target.value })} placeholder="$" className="money-big" />{bad(c, v.counted)}</div>
         <div className="field"><label htmlFor="cc-n">Nota (opcional)</label><input id="cc-n" value={v.note} maxLength={300} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="Ej.: retiré $10.000 para el banco" /></div>
@@ -46,6 +49,27 @@ export function CashCloseForm({ review, suggestedFloat, cashSales }: { review: b
       )}
       {!review && <p className="hint">Cuenta los billetes y monedas y escribe el total. El sistema compara con las ventas y el administrador revisa el resultado.</p>}
       <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || !ok} onClick={submit}>{pending ? "Registrando…" : "Cerrar caja"}</button></div>
+      {err && <p className="error" role="alert">{err}</p>}
+    </div>
+  );
+}
+
+/** Apertura de caja: quien abre anota el sencillo con que parte el turno. */
+export function CashOpenForm({ suggestedFloat }: { suggestedFloat: number }) {
+  const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
+  const [float, setFloat] = useState(suggestedFloat ? suggestedFloat.toLocaleString("es-CL") : ""); const [note, setNote] = useState("");
+  const f = pesos(float);
+  return (
+    <div className="formcard cash-open" style={{ maxWidth: 640 }}>
+      <h2 className="sect" style={{ marginTop: 0 }}>Abrir caja</h2>
+      <p className="muted small" style={{ marginTop: 0 }}>Cuenta el sencillo con que parte la caja y anótalo. Queda fijo para el cierre de este turno.</p>
+      <div className="fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+        <div className="field"><label htmlFor="co-float">Fondo inicial (sencillo)</label><input id="co-float" inputMode="numeric" value={float} onChange={(e) => setFloat(e.target.value)} placeholder="$ 0" />{float.trim() && f === null && <span className="out small">monto inválido</span>}</div>
+        <div className="field"><label htmlFor="co-note">Nota (opcional)</label><input id="co-note" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} /></div>
+      </div>
+      <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || f === null} onClick={() => start(async () => {
+        setErr(null); const r = await openCashAction({ float: f!, note }); if (r.ok) router.refresh(); else setErr(r.error);
+      })}>{pending ? "Abriendo…" : `Abrir caja con ${clp(f ?? 0)}`}</button></div>
       {err && <p className="error" role="alert">{err}</p>}
     </div>
   );

@@ -7,7 +7,7 @@ import { Prisma, type PrismaClient } from '../../generated/prisma/client';
 import { prisma as defaultClient } from '../../core/db/client';
 import type {
   Ports, Tx, UnitOfWork, CatalogReader, ProductReader, SalesReader, ReportReader, UserStore, AuthAdmin,
-  PurchaseReader, SupplierRow, ExpenseReader, ExpenseRecord, CashOps, CashCloseRecord,
+  PurchaseReader, SupplierRow, ExpenseReader, ExpenseRecord, CashOps, CashCloseRecord, CashOpenRecord,
   SettingsStore, FeeRuleRow, CatalogEntryRow, BusinessSettingsRow,
   SaleRecord, SaleItemRecord, ChargeRecord, StockMovementRecord, PurchaseRecord, PurchaseItemRecord, ProductSearchRow, ProductSaveInput, ProductListFilter,
 } from '../ports';
@@ -117,6 +117,14 @@ function cashOps(db: Db): CashOps {
           AND (${f.userId ?? null}::text IS NULL OR a."userId" = ${f.userId ?? null}::text)
         ORDER BY a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
       return rows.map(toRecord);
+    },
+    async opens(branchId, f) {
+      const rows = await db.$queryRaw<{ id: string; at: Date; userId: string; userName: string | null; after: Record<string, unknown> }[]>`
+        SELECT a.id, a."occurredAt" AS at, a."userId", u.name AS "userName", a.after
+        FROM audit_logs a LEFT JOIN users u ON u.id = a."userId"
+        WHERE a.action = 'cash.open' AND a.after->>'branchId' = ${branchId} AND a.after->>'date' BETWEEN ${f.from} AND ${f.to}
+        ORDER BY a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
+      return rows.map((r): CashOpenRecord => ({ ...(r.after as unknown as Omit<CashOpenRecord, 'id' | 'at' | 'userId' | 'userName'>), id: r.id, at: r.at, userId: r.userId, userName: r.userName ?? '—' }));
     },
   };
   return ops;

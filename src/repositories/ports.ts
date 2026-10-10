@@ -188,12 +188,17 @@ export interface CashSummary { salesCount: number; total: Peso; cash: Peso; void
 export interface CashCloseRecord {
   id: string; at: Date; userId: string; userName: string; role: 'ADMINISTRADOR' | 'VENDEDOR'; branchId: string; date: string; seq: number; periodFrom: string | null;
   float: Peso; counted: Peso; withdrawals: Peso; expectedCash: Peso; diff: Peso; salesCount: number; total: Peso; byMethod: CashSummary['byMethod']; voidedCount: number; note: string | null;
+  /** Apertura asociada (si la hubo): el fondo inicial lo fijó quien abrió. */
+  openId?: string | null; openedBy?: string | null; openedAt?: string | null; withoutOpen?: boolean;
 }
+/** Apertura de caja (bitácora: action = 'cash.open'): fondo inicial fijado por quien abre. */
+export interface CashOpenRecord { id: string; at: Date; userId: string; userName: string; branchId: string; date: string; float: Peso; note: string | null }
 export interface CashOps {
   /** since = momento del último cierre del día (exclusivo) o null = desde el inicio del día. */
   summary(branchId: string, date: string, since: Date | null): Promise<CashSummary>;
   lastClose(branchId: string, date: string): Promise<CashCloseRecord | null>;
   closes(branchId: string, f: { from: string; to: string; userId?: string; limit: number }): Promise<CashCloseRecord[]>;
+  opens(branchId: string, f: { from: string; to: string; limit: number }): Promise<CashOpenRecord[]>;
 }
 export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; now?: () => Date }
 

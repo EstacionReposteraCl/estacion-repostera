@@ -283,3 +283,14 @@ test('cierre de caja en Postgres real: tramo desde el último cierre, efectivo p
   assert.equal((await svc.cash.status(admin)).salesCount, 0, 'el siguiente tramo empieza vacío');
   const hs = await svc.cash.history(seller); assert.equal(hs.review, false); assert.ok(hs.rows.every((r) => !('diff' in r)));
 });
+
+test('apertura de caja en Postgres real: fija el fondo del cierre', async () => {
+  const st0 = await svc.cash.status(admin);
+  if (st0.open) await svc.cash.close(admin, { counted: 0 });
+  await svc.cash.open(seller, { float: 12345 });
+  assert.equal((await svc.cash.status(admin)).open?.float, 12345);
+  assert.equal(await code(svc.cash.open(admin, { float: 1 })), 'BUSINESS_RULE');
+  const r = await svc.cash.close(admin, { float: 1, counted: 12345 });
+  assert.equal(r.float, 12345); assert.equal((r as { withoutOpen?: boolean }).withoutOpen, false);
+  assert.equal((await svc.cash.status(admin)).open, null);
+});
