@@ -73,7 +73,11 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
       </>)}
 
       {review && sales && (
-        <div className="arqueo-total"><span>Total del cierre: efectivo + tarjetas <span className="muted small">({sales.count} venta(s))</span></span><b>{clp(sales.total)}</b></div>
+        <div className="arqueo-totales">
+          <div><span>Total efectivo</span><b>{clp(sales.byMethod.filter((m) => m.code === "CASH").reduce((a, m) => a + (m.amount ?? 0), 0))}</b></div>
+          <div><span>Total tarjetas (débito + crédito)</span><b>{clp(sales.byMethod.filter((m) => m.code !== "CASH").reduce((a, m) => a + (m.amount ?? 0), 0))}</b></div>
+          <div className="arqueo-gran"><span>Total del cierre <span className="muted small">({sales.count} venta(s))</span></span><b>{clp(sales.total)}</b></div>
+        </div>
       )}
       <p className="hint">Mercado Pago (Mercado Libre), Rappi y transferencias no entran al cierre: esa plata llega después. Sí se suman en Ventas, Reportes y Dinero.</p>
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="cc-n">Nota (opcional)</label><input id="cc-n" value={v.note} maxLength={300} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="Ej.: retiré $10.000 para el banco" /></div>
