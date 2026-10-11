@@ -44,6 +44,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
             {isFull(r) && (r.openedBy ? <div>Abrió: {r.openedBy}{r.openedAt ? ` · ${hm(new Date(r.openedAt))}` : ""}</div> : <div>(sin apertura registrada)</div>)}
           </header>
           {isFull(r) && (<>
+            <div style={{ fontWeight: 700, marginTop: 6 }}>VENTAS POR MEDIO DE PAGO</div>
             <table><tbody>
               {r.byMethod.length === 0 ? <tr><td>Sin ventas</td><td className="num">$0</td></tr> : r.byMethod.map((m) => <tr key={m.code}><td>{m.name}<div className="rc-sub">{m.count} venta(s)</div></td><td className="num">{peso(m.amount)}</td></tr>)}
             </tbody></table>
@@ -90,7 +91,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
         <CashOpenForm suggestedFloat={st.suggestedFloat} />
         <p className="muted small" style={{ maxWidth: 640 }}>⚠ La caja no está abierta. Puedes vender igual; al abrir, las ventas de hoy quedan en este turno. Si cierras sin abrir, el fondo inicial lo escribes al cerrar.</p>
       </>)}
-      <CashCloseForm key={st.open?.id ?? "sin-apertura"} review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} openFloat={st.open?.float ?? null} />
+      <CashCloseForm key={st.open?.id ?? "sin-apertura"} review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} openFloat={st.open?.float ?? null} sales={st.summary ? { total: st.summary.total, count: st.summary.salesCount, byMethod: st.summary.byMethod } : null} />
 
       <h2 className="sect">{st.review ? "Cierres registrados" : "Mis cierres de hoy"}</h2>
       {st.review && (

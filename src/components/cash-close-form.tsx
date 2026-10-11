@@ -9,7 +9,7 @@ const clp = (n: number) => (n < 0 ? "−$" : "$") + Math.abs(n).toLocaleString("
 const pesos = (s: string) => { if (!s.trim()) return 0; const c = parseMoneyCents(s); return c === null || c % 100 !== 0 ? null : c / 100; };
 
 /** review = administrador: ve el esperado y la diferencia mientras escribe. Vendedor: conteo a ciegas. */
-export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat }: { review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null }) {
+export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sales = null }: { review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null; sales?: { total: number; count: number; byMethod: { code: string; name: string; count: number; amount: number }[] } | null }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
   const [v, setV] = useState({ float: (openFloat ?? suggestedFloat) ? (openFloat ?? suggestedFloat).toLocaleString("es-CL") : "", withdrawals: "", counted: "", note: "" });
   const f = openFloat ?? pesos(v.float), w = pesos(v.withdrawals), c = v.counted.trim() ? pesos(v.counted) : null;
@@ -47,6 +47,15 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat }: 
           {diff !== null && <div className={`cash-diff ${diff === 0 ? "is-ok" : diff > 0 ? "is-over" : "is-short"}`}><span>{diff === 0 ? "Cuadra exacto" : diff > 0 ? "Sobrante" : "Faltante"}</span><b>{clp(diff)}</b></div>}
         </div>
       )}
+      {review && sales && (
+        <div className="cash-calc" aria-label="Ventas del turno por medio de pago">
+          <div className="cash-exp"><span>Ventas del turno por medio de pago</span><span className="muted small">{sales.count} venta(s)</span></div>
+          {sales.byMethod.length === 0 ? <div><span className="muted">Sin ventas en este turno</span><b>$0</b></div>
+            : sales.byMethod.map((m) => <div key={m.code}><span>{m.name} <span className="muted small">· {m.count}</span></span><b>{clp(m.amount)}</b></div>)}
+          <div className="cash-exp"><span>Total vendido</span><b>{clp(sales.total)}</b></div>
+        </div>
+      )}
+      {review && <p className="hint">Al cerrar se genera el comprobante del cierre con este resumen, listo para imprimir.</p>}
       {!review && <p className="hint">Cuenta los billetes y monedas y escribe el total. El sistema compara con las ventas y el administrador revisa el resultado.</p>}
       <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || !ok} onClick={submit}>{pending ? "Registrando…" : "Cerrar caja"}</button></div>
       {err && <p className="error" role="alert">{err}</p>}
