@@ -85,3 +85,12 @@ test('compras y gastos guardan "pagado con" en la bitácora; un valor inválido 
   const a = db.audit.find((e) => e.action === 'expense.create')!; assert.equal((a.after as { paidFrom: string }).paidFrom, 'CAJA');
   await assert.rejects(svc.expenses.create(admin, { categoryId: cat.id, description: 'Huevos', expenseDate: '2026-10-10', totalAmount: 27000, paidFrom: 'TARJETA' }), /con qué se pagó/);
 });
+
+test('gastos: una misma factura puede registrarse en partes (otra categoría) solo marcándolo; sin marcar sigue bloqueada', async () => {
+  const { db, svc } = world(); db.clock = new Date('2026-10-11T14:00:00-03:00');
+  const c1 = (await svc.expenses.categories(admin))[0]; const c2 = await svc.expenses.createCategory(admin, 'Embalaje IT');
+  await svc.expenses.create(admin, { categoryId: c1.id, description: 'Impresora pequeña', expenseDate: '2026-10-11', totalAmount: 29405, docType: 'FACTURA', docNumber: '15663671', paidFrom: 'MP' });
+  await assert.rejects(svc.expenses.create(admin, { categoryId: c2.id, description: 'Rollos de papel', expenseDate: '2026-10-11', totalAmount: 2490, docType: 'FACTURA', docNumber: '15663671', paidFrom: 'MP' }), /otra parte de la misma factura/);
+  await svc.expenses.create(admin, { categoryId: c2.id, description: 'Rollos de papel', expenseDate: '2026-10-11', totalAmount: 2490, docType: 'FACTURA', docNumber: '15663671', paidFrom: 'MP', sameDocumentPart: true });
+  const a = db.audit.filter((e) => e.action === 'expense.create').at(-1)!; assert.equal((a.after as { sameDocumentPart?: boolean }).sameDocumentPart, true);
+});

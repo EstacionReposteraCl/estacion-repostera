@@ -12,7 +12,7 @@ const fail = (e: unknown): ExpResult => ({ ok: false, error: toClientError(e).me
 export async function createExpenseAction(i: ExpenseInput): Promise<ExpResult> {
   try {
     await services.expenses.create(await getActor(), { categoryId: String(i.categoryId), description: String(i.description), expenseDate: String(i.expenseDate), totalAmount: Number(i.totalAmount),
-      docType: i.docType ?? null, docNumber: i.docNumber ?? null, supplierId: i.supplierId || null, paidFrom: i.paidFrom ? String(i.paidFrom) : null });
+      docType: i.docType ?? null, docNumber: i.docNumber ?? null, supplierId: i.supplierId || null, paidFrom: i.paidFrom ? String(i.paidFrom) : null, sameDocumentPart: i.sameDocumentPart === true });
     return done("Gasto registrado.");
   } catch (e) { return fail(e); }
 }

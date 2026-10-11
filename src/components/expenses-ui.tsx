@@ -10,15 +10,15 @@ const int = (s: string) => { const t = s.replace(/[.$\s]/g, ""); return /^\d+$/.
 
 export function ExpenseForm({ categories, suppliers, today }: { categories: { id: string; name: string }[]; suppliers: { id: string; name: string }[]; today: string }) {
   const router = useRouter(); const [pending, start] = useTransition();
-  const [f, setF] = useState({ categoryId: categories[0]?.id ?? "", description: "", expenseDate: today, total: "", docType: "", docNumber: "", supplierId: "", paidFrom: "" });
+  const [f, setF] = useState({ categoryId: categories[0]?.id ?? "", description: "", expenseDate: today, total: "", docType: "", docNumber: "", supplierId: "", paidFrom: "" }); const [part, setPart] = useState(false);
   const [err, setErr] = useState<string | null>(null); const [ok, setOk] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   let preview: ReturnType<typeof planExpense> | null = null; try { if (Number.isFinite(int(f.total))) preview = planExpense({ docType: (f.docType || null) as ExpenseDocType | null, totalAmount: int(f.total) }); } catch { preview = null; }
   function submit() {
     setErr(null); setOk(null);
     start(async () => {
-      const r = await createExpenseAction({ categoryId: f.categoryId, description: f.description, expenseDate: f.expenseDate, totalAmount: int(f.total), docType: (f.docType || null) as ExpenseDocType | null, docNumber: f.docNumber || null, supplierId: f.supplierId || null, paidFrom: f.paidFrom });
-      if (r.ok) { setOk(r.msg ?? "Listo."); setF({ ...f, description: "", total: "", docNumber: "" }); router.refresh(); } else setErr(r.error);
+      const r = await createExpenseAction({ categoryId: f.categoryId, description: f.description, expenseDate: f.expenseDate, totalAmount: int(f.total), docType: (f.docType || null) as ExpenseDocType | null, docNumber: f.docNumber || null, supplierId: f.supplierId || null, paidFrom: f.paidFrom, sameDocumentPart: part && !!f.docNumber });
+      if (r.ok) { setOk(r.msg ?? "Listo."); setF({ ...f, description: "", total: "" }); router.refresh(); } else setErr(r.error);
     });
   }
   return (
@@ -29,7 +29,8 @@ export function ExpenseForm({ categories, suppliers, today }: { categories: { id
         <div className="field"><label htmlFor="ef">Fecha</label><input id="ef" type="date" value={f.expenseDate} max={today} onChange={set("expenseDate")} /></div>
         <div className="field"><label htmlFor="et">Monto total pagado</label><input id="et" value={f.total} onChange={set("total")} inputMode="numeric" placeholder="$" /></div>
         <div className="field"><label htmlFor="edt">Documento</label><select id="edt" value={f.docType} onChange={set("docType")}><option value="">Sin documento</option><option value="BOLETA">Boleta</option><option value="FACTURA">Factura</option><option value="OTRO">Otro</option></select></div>
-        {f.docType && <div className="field"><label htmlFor="edn">N° documento{f.docType === "FACTURA" ? "" : " (opcional)"}</label><input id="edn" value={f.docNumber} onChange={set("docNumber")} /></div>}
+        {f.docType && <div className="field"><label htmlFor="edn">N° documento{f.docType === "FACTURA" ? "" : " (opcional)"}</label><input id="edn" value={f.docNumber} onChange={(e) => { setPart(false); set("docNumber")(e); }} />
+          {f.docNumber.trim() && <label className="inline small" style={{ marginTop: 6, fontWeight: 400 }}><input type="checkbox" checked={part} onChange={(e) => setPart(e.target.checked)} style={{ width: "auto" }} /> Es otra parte de la misma factura (ítems de otra categoría)</label>}</div>}
         <div className="field"><label htmlFor="es">Proveedor (opcional)</label><select id="es" value={f.supplierId} onChange={set("supplierId")}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
         <div className="field"><label htmlFor="epf">Pagado con</label>
           <select id="epf" value={f.paidFrom} onChange={set("paidFrom")} aria-invalid={!f.paidFrom}><option value="">Elige…</option>{PAID_FROM.map((k) => <option key={k} value={k}>{PAID_FROM_LABEL[k]}</option>)}</select>

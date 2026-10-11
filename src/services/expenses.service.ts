@@ -7,7 +7,7 @@ import { isPaidFrom } from '../domain/money/money.ts';
 import type { UnitOfWork, ExpenseReader, ExpenseRecord, ExpenseCategoryRow, CatalogReader } from '../repositories/ports.ts';
 
 export interface Deps { uow: UnitOfWork; expenses: ExpenseReader; catalog: CatalogReader; now?: () => Date }
-export interface ExpenseInput { categoryId: string; description: string; expenseDate: string; totalAmount: number; docType?: ExpenseDocType | null; docNumber?: string | null; supplierId?: string | null; netAmount?: number | null; vatAmount?: number | null; paidFrom?: string | null }
+export interface ExpenseInput { categoryId: string; description: string; expenseDate: string; totalAmount: number; docType?: ExpenseDocType | null; docNumber?: string | null; supplierId?: string | null; netAmount?: number | null; vatAmount?: number | null; paidFrom?: string | null; sameDocumentPart?: boolean }   // sameDocumentPart: otro ítem de una factura ya registrada (p. ej. ítems de distintas categorías)
 
 export function createExpensesService({ uow, expenses, catalog, now = () => new Date() }: Deps) {
   const today = async () => businessDateOf(now(), (await catalog.businessSettings()).timezone);
@@ -35,10 +35,10 @@ export function createExpensesService({ uow, expenses, catalog, now = () => new 
       return uow.run(async (tx) => {
         const active = await tx.expenses.categoryActive(i.categoryId);
         if (active === null) throw validation('Categoría inexistente.'); if (!active) throw businessRule('La categoría está inactiva.');
-        if (docType && docNumber) { const dup = await tx.expenses.findDuplicate({ supplierId: i.supplierId ?? null, docType, docNumber }); if (dup) throw businessRule(`Ese documento ya está registrado como gasto (del ${dup.expenseDate.split('-').reverse().join('-')}).`); }
+        if (docType && docNumber && !i.sameDocumentPart) { const dup = await tx.expenses.findDuplicate({ supplierId: i.supplierId ?? null, docType, docNumber }); if (dup) throw businessRule(`Ese documento ya está registrado como gasto (del ${dup.expenseDate.split('-').reverse().join('-')}). Si es otro ítem de la misma factura, marca “Es otra parte de la misma factura”.`); }
         const r = await tx.expenses.insert({ branchId: actor.branchId, categoryId: i.categoryId, supplierId: i.supplierId ?? null, description, docType, docNumber, expenseDate: i.expenseDate,
           vatRecoverable: a.vatRecoverable, netAmount: a.netAmount, vatAmount: a.vatAmount, totalAmount: a.totalAmount, createdById: actor.userId });
-        await tx.audit.write({ action: 'expense.create', entity: 'Expense', entityId: r.id, userId: actor.userId, after: { description, total: a.totalAmount, docType, docNumber, expenseDate: i.expenseDate, paidFrom: i.paidFrom ?? null } });
+        await tx.audit.write({ action: 'expense.create', entity: 'Expense', entityId: r.id, userId: actor.userId, after: { description, total: a.totalAmount, docType, docNumber, expenseDate: i.expenseDate, paidFrom: i.paidFrom ?? null, ...(i.sameDocumentPart && docNumber ? { sameDocumentPart: true } : {}) } });
         return r;
       });
     },
