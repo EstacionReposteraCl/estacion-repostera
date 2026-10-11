@@ -4,6 +4,9 @@ import { businessDateOf } from '../core/time/business-date.ts';
 import { businessRule } from '../core/errors/index.ts';
 import type { UnitOfWork, CatalogReader, CashOps, CashSummary, CashCloseRecord, CashOpenRecord } from '../repositories/ports.ts';
 
+/** Medios que se cuentan en el cierre: lo que queda en el local (efectivo) o en la máquina TUU (débito y crédito).
+ *  Plataformas (Mercado Pago/ML, Rappi) y transferencias llegan después y no entran al arqueo (sí a reportes y a Dinero). */
+export const CLOSE_METHODS = ['CASH', 'DEBIT', 'CREDIT'];
 export interface Deps { uow: UnitOfWork; cash: CashOps; catalog: CatalogReader; now?: () => Date }
 /** Lo que ve el vendedor de un cierre: lo que él contó, sin el esperado ni la diferencia ("conteo a ciegas"). */
 export type BlindClose = Pick<CashCloseRecord, 'id' | 'at' | 'date' | 'seq' | 'float' | 'counted' | 'withdrawals' | 'salesCount' | 'note' | 'userName' | 'declared'>;
@@ -35,7 +38,7 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
       assertCan(actor, 'cash.close');
       const date = await today();
       const [last, closesToday, lastEver] = await Promise.all([cash.lastClose(actor.branchId, date), cash.closes(actor.branchId, { from: date, to: date, limit: 500 }), cash.closes(actor.branchId, { from: '2000-01-01', to: date, limit: 1 })]);
-      const [summary, open] = await Promise.all([cash.summary(actor.branchId, date, last?.at ?? null), currentOpen(cash, actor.branchId, date)]);
+      const [summary, open] = await Promise.all([cash.summary(actor.branchId, date, last?.at ?? null, CLOSE_METHODS), currentOpen(cash, actor.branchId, date)]);
       const review = can(actor.role, 'cash.review');
       const methods = summary.byMethod.filter((m) => m.code !== 'CASH').map((m) => ({ code: m.code, name: m.name }));   // medios a declarar (sin montos para el vendedor)
       return { date, closesToday: closesToday.length, since: last?.at ?? null, suggestedFloat: open?.float ?? lastEver[0]?.float ?? 0, salesCount: summary.salesCount, summary: review ? summary : null, review, open, methods };
@@ -67,7 +70,7 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
         const last = await tx.cash.lastClose(actor.branchId, date);
         const open = await currentOpen(tx.cash, actor.branchId, date);
         const float = open ? open.float : inputFloat;               // con apertura, el fondo lo fijó quien abrió
-        const s = await tx.cash.summary(actor.branchId, date, last?.at ?? null);
+        const s = await tx.cash.summary(actor.branchId, date, last?.at ?? null, CLOSE_METHODS);
         const expectedCash = float + s.cash - withdrawals; const diff = counted - expectedCash;
         const declared: Record<string, number> = {};
         for (const m of s.byMethod) { if (m.code === 'CASH') continue; const v = i.declared?.[m.code]; if (v !== undefined && v !== null) declared[m.code] = money(v, m.name); }

@@ -116,12 +116,13 @@ export class FakeDb implements State {
   /** Ventas de prueba para el cierre de caja: { date, at, total, voided?, payments: [{ code, name, amount }] }. */
   cashSales: { date: string; at: Date; total: number; voided?: boolean; payments: { code: string; name: string; amount: number }[] }[] = [];
   cashOps: CashOps = {
-    summary: async (_b, date, since) => {
-      const rows = this.cashSales.filter((s) => s.date === date && (!since || s.at > since)); const ok = rows.filter((s) => !s.voided);
+    summary: async (_b, date, since, methods) => {
+      const rows0 = this.cashSales.filter((s) => s.date === date && (!since || s.at > since));
+      const rows = rows0.map((s) => ({ ...s, payments: s.payments.filter((p) => methods.includes(p.code)) })); const ok = rows.filter((s) => !s.voided && s.payments.length > 0);
       const m = new Map<string, { code: string; name: string; count: number; amount: number }>();
       for (const s of ok) for (const p of s.payments) { const x = m.get(p.code) ?? { code: p.code, name: p.name, count: 0, amount: 0 }; x.count++; x.amount += p.amount; m.set(p.code, x); }
       const byMethod = [...m.values()].sort((a, b) => b.amount - a.amount);
-      return { salesCount: ok.length, total: ok.reduce((a, s) => a + s.total, 0), voidedCount: rows.length - ok.length, cash: m.get('CASH')?.amount ?? 0, byMethod };
+      return { salesCount: ok.length, total: ok.reduce((a, s) => a + s.payments.reduce((x, p) => x + p.amount, 0), 0), voidedCount: rows0.filter((s) => s.voided).length, cash: m.get('CASH')?.amount ?? 0, byMethod };
     },
     lastClose: async (b, date) => (await this.cashOps.closes(b, { from: date, to: date, limit: 1 }))[0] ?? null,
     closes: async (b, f) => this.audit.map((e, i) => ({ e, i })).filter(({ e }) => e.action === 'cash.close').map(({ e, i }) => {

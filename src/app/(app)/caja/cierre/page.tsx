@@ -44,12 +44,12 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
             {isFull(r) && (r.openedBy ? <div>Abrió: {r.openedBy}{r.openedAt ? ` · ${hm(new Date(r.openedAt))}` : ""}</div> : <div>(sin apertura registrada)</div>)}
           </header>
           {isFull(r) && (<>
-            <div style={{ fontWeight: 700, marginTop: 6 }}>VENTAS POR MEDIO DE PAGO</div>
+            <div style={{ fontWeight: 700, marginTop: 6 }}>VENTAS EN CAJA (EFECTIVO Y TARJETAS)</div>
             <table><tbody>
               {r.byMethod.length === 0 ? <tr><td>Sin ventas</td><td className="num">$0</td></tr> : r.byMethod.map((m) => { const d = r.declared?.[m.code]; return (
                 <tr key={m.code}><td>{m.name}<div className="rc-sub">{m.count} venta(s){d !== undefined ? ` · declarado ${peso(d)} · ${d === m.amount ? "cuadra" : (d > m.amount ? "sobra " : "falta ") + peso(Math.abs(d - m.amount))}` : ""}</div></td><td className="num">{peso(m.amount)}</td></tr>); })}
             </tbody></table>
-            <dl><div className="rc-total"><dt>VENTAS ({r.salesCount})</dt><dd>{peso(r.total)}</dd></div>{r.voidedCount > 0 && <div><dt>Anuladas</dt><dd>{r.voidedCount}</dd></div>}</dl>
+            <dl><div className="rc-total"><dt>TOTAL ({r.salesCount})</dt><dd>{peso(r.total)}</dd></div>{r.voidedCount > 0 && <div><dt>Anuladas</dt><dd>{r.voidedCount}</dd></div>}</dl>
           </>)}
           <dl style={{ borderTop: "1px dashed #999", paddingTop: 6 }}>
             <div><dt>Fondo inicial</dt><dd>{peso(r.float)}</dd></div>

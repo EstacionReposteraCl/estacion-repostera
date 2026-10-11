@@ -97,17 +97,23 @@ function cashOps(db: Db): CashOps {
   const toRecord = (r: { id: string; at: Date; userId: string; userName: string | null; after: Record<string, unknown> }): CashCloseRecord =>
     ({ ...(r.after as unknown as Omit<CashCloseRecord, 'id' | 'at' | 'userId' | 'userName'>), id: r.id, at: r.at, userId: r.userId, userName: r.userName ?? '—' });
   const ops: CashOps = {
-    async summary(branchId, date, since) {
-      const [s] = await db.$queryRaw<{ n: bigint; total: bigint; voided: bigint }[]>`
-        SELECT count(*) FILTER (WHERE status = 'COMPLETED') AS n, COALESCE(sum(total) FILTER (WHERE status = 'COMPLETED'), 0)::bigint AS total, count(*) FILTER (WHERE status = 'VOIDED') AS voided
+    async summary(branchId, date, since, methods) {
+      const [s] = await db.$queryRaw<{ voided: bigint }[]>`
+        SELECT count(*) FILTER (WHERE status = 'VOIDED') AS voided
         FROM sales WHERE "branchId" = ${branchId} AND "businessDate" = ${date}::date AND (${since}::timestamptz IS NULL OR "soldAt" > ${since}::timestamptz)`;
+      const [t] = await db.$queryRaw<{ n: bigint; total: bigint }[]>`
+        SELECT count(DISTINCT s.id) AS n, COALESCE(sum(p.amount), 0)::bigint AS total
+        FROM sales s JOIN sale_payments p ON p."saleId" = s.id JOIN payment_methods m ON m.id = p."paymentMethodId"
+        WHERE s."branchId" = ${branchId} AND s."businessDate" = ${date}::date AND s.status = 'COMPLETED' AND (${since}::timestamptz IS NULL OR s."soldAt" > ${since}::timestamptz)
+          AND m.code = ANY(${methods}::text[])`;
       const pm = await db.$queryRaw<{ code: string; name: string; n: bigint; amount: bigint }[]>`
         SELECT m.code, m.name, count(DISTINCT s.id) AS n, COALESCE(sum(p.amount), 0)::bigint AS amount
         FROM sales s JOIN sale_payments p ON p."saleId" = s.id JOIN payment_methods m ON m.id = p."paymentMethodId"
         WHERE s."branchId" = ${branchId} AND s."businessDate" = ${date}::date AND s.status = 'COMPLETED' AND (${since}::timestamptz IS NULL OR s."soldAt" > ${since}::timestamptz)
+          AND m.code = ANY(${methods}::text[])
         GROUP BY m.code, m.name ORDER BY amount DESC`;
       const byMethod = pm.map((x) => ({ code: x.code, name: x.name, count: Number(x.n), amount: Number(x.amount) }));
-      return { salesCount: Number(s.n), total: Number(s.total), voidedCount: Number(s.voided), cash: byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0), byMethod };
+      return { salesCount: Number(t.n), total: Number(t.total), voidedCount: Number(s.voided), cash: byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0), byMethod };
     },
     async lastClose(branchId, date) { return (await ops.closes(branchId, { from: date, to: date, limit: 1 }))[0] ?? null; },
     async closes(branchId, f) {

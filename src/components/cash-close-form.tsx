@@ -43,7 +43,7 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
       <h2 className="sect" style={{ marginTop: 0 }}>Arqueo y cierre de caja</h2>
       <ol className="arqueo-pasos">
         <li>Cuenta los billetes y monedas de la caja.</li>
-        {others.length > 0 && <li>Anota los totales de los otros medios (el de débito y crédito sale del <b>cierre de la máquina TUU</b>).</li>}
+        {others.length > 0 && <li>Anota los totales de débito y crédito del <b>cierre de la máquina TUU</b>.</li>}
         <li>Presiona <b>Cerrar caja</b> e imprime el comprobante.</li>
       </ol>
 
@@ -59,7 +59,7 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
       </tbody></table>
 
       {others.length > 0 && (<>
-        <h3 className="arqueo-h">2 · Otros medios de pago</h3>
+        <h3 className="arqueo-h">2 · Tarjetas (máquina TUU)</h3>
         <table className="list arqueo-t">
           <thead><tr><th>Medio</th>{review && <th className="num">Sistema</th>}<th className="num">{review ? "Declarado" : "Total según voucher / app"}</th>{review && <th className="num">Resultado</th>}</tr></thead>
           <tbody>{others.map((m) => { const d = decVals[m.code]; return (
@@ -73,8 +73,9 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
       </>)}
 
       {review && sales && (
-        <div className="arqueo-total"><span>Total vendido en el turno <span className="muted small">({sales.count} venta(s))</span></span><b>{clp(sales.total)}</b></div>
+        <div className="arqueo-total"><span>Total del cierre: efectivo + tarjetas <span className="muted small">({sales.count} venta(s))</span></span><b>{clp(sales.total)}</b></div>
       )}
+      <p className="hint">Mercado Pago (Mercado Libre), Rappi y transferencias no entran al cierre: esa plata llega después. Sí se suman en Ventas, Reportes y Dinero.</p>
       <div className="field" style={{ marginTop: 12 }}><label htmlFor="cc-n">Nota (opcional)</label><input id="cc-n" value={v.note} maxLength={300} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="Ej.: retiré $10.000 para el banco" /></div>
       <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || !ok} onClick={submit}>{pending ? "Cerrando…" : "Cerrar caja e imprimir comprobante"}</button>
         {!ok && <span className="muted small">Escribe el efectivo contado para poder cerrar.</span>}</div>

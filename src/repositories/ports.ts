@@ -198,7 +198,8 @@ export interface CashCloseRecord {
 export interface CashOpenRecord { id: string; at: Date; userId: string; userName: string; branchId: string; date: string; float: Peso; note: string | null }
 export interface CashOps {
   /** since = momento del último cierre del día (exclusivo) o null = desde el inicio del día. */
-  summary(branchId: string, date: string, since: Date | null): Promise<CashSummary>;
+  /** methods: códigos de medio de pago que entran al cierre (los demás —plataformas, transferencias— no se cuentan). */
+  summary(branchId: string, date: string, since: Date | null, methods: string[]): Promise<CashSummary>;
   lastClose(branchId: string, date: string): Promise<CashCloseRecord | null>;
   closes(branchId: string, f: { from: string; to: string; userId?: string; limit: number }): Promise<CashCloseRecord[]>;
   opens(branchId: string, f: { from: string; to: string; limit: number }): Promise<CashOpenRecord[]>;

@@ -85,3 +85,13 @@ test('arqueo: montos declarados de otros medios (p. ej. cierre TUU) se guardan; 
   assert.deepEqual(r.declared, { DEBIT: 4990 });
   const h = await svc.cash.history(admin); assert.deepEqual((h.rows[0] as CashCloseRecord).declared, { DEBIT: 4990 });
 });
+
+test('el cierre solo cuenta efectivo, débito y crédito: Mercado Pago, Rappi y transferencias quedan fuera', async () => {
+  const { db, svc } = setup();
+  db.cashSales.push({ date: '2026-10-07', at: T('13:00'), total: 7313, payments: [{ code: 'MERCADO_PAGO', name: 'Mercado Pago', amount: 7313 }] },
+    { date: '2026-10-07', at: T('13:30'), total: 6000, payments: [{ code: 'CASH', name: 'Efectivo', amount: 1000 }, { code: 'TRANSFER', name: 'Transferencia', amount: 5000 }] });
+  const st = await svc.cash.status(admin);
+  assert.deepEqual(st.summary!.byMethod.map((m) => m.code).sort(), ['CASH', 'DEBIT']);
+  assert.equal(st.summary!.total, 13000 + 1000); assert.equal(st.summary!.cash, 9000); assert.equal(st.salesCount, 3);
+  assert.deepEqual(st.methods, [{ code: 'DEBIT', name: 'Débito' }]);
+});
