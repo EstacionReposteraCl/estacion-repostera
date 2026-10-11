@@ -191,6 +191,8 @@ export interface CashCloseRecord {
   float: Peso; counted: Peso; withdrawals: Peso; expectedCash: Peso; diff: Peso; salesCount: number; total: Peso; byMethod: CashSummary['byMethod']; voidedCount: number; note: string | null;
   /** Apertura asociada (si la hubo): el fondo inicial lo fijó quien abrió. */
   openId?: string | null; openedBy?: string | null; openedAt?: string | null; withoutOpen?: boolean;
+  /** Montos declarados por quien cierra para los otros medios (p. ej. total del cierre de la máquina TUU), por código de medio. */
+  declared?: Record<string, Peso> | null;
 }
 /** Apertura de caja (bitácora: action = 'cash.open'): fondo inicial fijado por quien abre. */
 export interface CashOpenRecord { id: string; at: Date; userId: string; userName: string; branchId: string; date: string; float: Peso; note: string | null }

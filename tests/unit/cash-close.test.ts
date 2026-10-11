@@ -76,3 +76,12 @@ test('cierre sin apertura: usa el fondo escrito y queda marcado', async () => {
   assert.equal(r.withoutOpen, true); assert.equal(r.expectedCash, 9000);
   assert.equal(await code(svc.cash.open(admin, { float: -5 })), 'VALIDATION');
 });
+
+test('arqueo: montos declarados de otros medios (p. ej. cierre TUU) se guardan; medios sin ventas se ignoran; el vendedor ve la lista de medios sin montos', async () => {
+  const { svc } = setup();
+  const sst = await svc.cash.status(s1); assert.deepEqual(sst.methods, [{ code: 'DEBIT', name: 'Débito' }]); assert.equal(sst.summary, null);
+  await assert.rejects(svc.cash.close(admin, { float: 0, counted: 8000, declared: { DEBIT: -1 } }), /monto/);
+  const r = await svc.cash.close(admin, { float: 0, counted: 8000, declared: { DEBIT: 4990, CREDIT: 123, CASH: 999 } }) as CashCloseRecord;
+  assert.deepEqual(r.declared, { DEBIT: 4990 });
+  const h = await svc.cash.history(admin); assert.deepEqual((h.rows[0] as CashCloseRecord).declared, { DEBIT: 4990 });
+});

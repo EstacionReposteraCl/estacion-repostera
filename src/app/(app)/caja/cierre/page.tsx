@@ -46,7 +46,8 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
           {isFull(r) && (<>
             <div style={{ fontWeight: 700, marginTop: 6 }}>VENTAS POR MEDIO DE PAGO</div>
             <table><tbody>
-              {r.byMethod.length === 0 ? <tr><td>Sin ventas</td><td className="num">$0</td></tr> : r.byMethod.map((m) => <tr key={m.code}><td>{m.name}<div className="rc-sub">{m.count} venta(s)</div></td><td className="num">{peso(m.amount)}</td></tr>)}
+              {r.byMethod.length === 0 ? <tr><td>Sin ventas</td><td className="num">$0</td></tr> : r.byMethod.map((m) => { const d = r.declared?.[m.code]; return (
+                <tr key={m.code}><td>{m.name}<div className="rc-sub">{m.count} venta(s){d !== undefined ? ` · declarado ${peso(d)} · ${d === m.amount ? "cuadra" : (d > m.amount ? "sobra " : "falta ") + peso(Math.abs(d - m.amount))}` : ""}</div></td><td className="num">{peso(m.amount)}</td></tr>); })}
             </tbody></table>
             <dl><div className="rc-total"><dt>VENTAS ({r.salesCount})</dt><dd>{peso(r.total)}</dd></div>{r.voidedCount > 0 && <div><dt>Anuladas</dt><dd>{r.voidedCount}</dd></div>}</dl>
           </>)}
@@ -58,6 +59,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
             <div className="rc-total"><dt>CONTADO</dt><dd>{peso(r.counted)}</dd></div>
             {isFull(r) && <div className="rc-total"><dt>{r.diff === 0 ? "CUADRA" : r.diff > 0 ? "SOBRANTE" : "FALTANTE"}</dt><dd>{signed(r.diff)}</dd></div>}
             {!isFull(r) && <div><dt>Ventas del turno</dt><dd>{r.salesCount}</dd></div>}
+            {!isFull(r) && r.declared && Object.entries(r.declared).map(([k, val]) => <div key={k}><dt>Declarado {k === "DEBIT" ? "débito" : k === "CREDIT" ? "crédito" : k.toLowerCase().replace("_", " ")}</dt><dd>{peso(val)}</dd></div>)}
           </dl>
           {r.note && <p style={{ margin: "6px 0" }}>Nota: {r.note}</p>}
           <footer>Control interno.<br /><br />Firma: ____________________</footer>
@@ -76,22 +78,15 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
       <div className="pagehead"><h1>Cierre de caja</h1></div>
       <p className="muted" style={{ marginTop: -6 }}>{dmy(st.date)} · {st.since ? `Turno desde el último cierre (${hm(st.since)})` : "Desde el inicio del día"}{st.closesToday > 0 ? ` · ${st.closesToday} cierre(s) hoy` : ""}</p>
 
-      {st.review && st.summary ? (
-        <div className="kpis">
-          <div className="tile"><p>Ventas del turno</p><h3>{st.summary.salesCount}</h3><p className="small">{st.summary.voidedCount > 0 ? `${st.summary.voidedCount} anulada(s) no cuentan` : "válidas"}</p></div>
-          <div className="tile"><p>Total vendido</p><h3>{peso(st.summary.total)}</h3></div>
-          <div className="tile tile-hero"><p>Ventas en efectivo</p><h3>{peso(st.summary.cash)}</h3></div>
-          {st.summary.byMethod.filter((m) => m.code !== "CASH").map((m) => <div className="tile" key={m.code}><p>{m.name}</p><h3>{peso(m.amount)}</h3><p className="small">{m.count} venta(s)</p></div>)}
-        </div>
-      ) : <p className="tile" style={{ maxWidth: 640 }}>Ventas registradas en este turno: <b>{st.salesCount}</b></p>}
+      <p className="muted" style={{ marginTop: -10 }}>Ventas registradas en este turno: <b>{st.salesCount}</b>{st.review && st.summary && st.summary.voidedCount > 0 ? ` · ${st.summary.voidedCount} anulada(s) no cuentan` : ""}</p>
 
       {st.open ? (
-        <p className="ok" role="status" style={{ maxWidth: 640 }}>Caja abierta por <b>{st.open.userName}</b> a las {hm(st.open.at)} con un fondo de <b>{peso(st.open.float)}</b>.</p>
+        <p className="ok" role="status" style={{ maxWidth: 760 }}>Caja abierta por <b>{st.open.userName}</b> a las {hm(st.open.at)} con un fondo de <b>{peso(st.open.float)}</b>.</p>
       ) : (<>
         <CashOpenForm suggestedFloat={st.suggestedFloat} />
         <p className="muted small" style={{ maxWidth: 640 }}>⚠ La caja no está abierta. Puedes vender igual; al abrir, las ventas de hoy quedan en este turno. Si cierras sin abrir, el fondo inicial lo escribes al cerrar.</p>
       </>)}
-      <CashCloseForm key={st.open?.id ?? "sin-apertura"} review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} openFloat={st.open?.float ?? null} sales={st.summary ? { total: st.summary.total, count: st.summary.salesCount, byMethod: st.summary.byMethod } : null} />
+      <CashCloseForm key={st.open?.id ?? "sin-apertura"} review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} openFloat={st.open?.float ?? null} sales={st.summary ? { total: st.summary.total, count: st.summary.salesCount, byMethod: st.summary.byMethod } : null} methods={st.methods} />
 
       <h2 className="sect">{st.review ? "Cierres registrados" : "Mis cierres de hoy"}</h2>
       {st.review && (
