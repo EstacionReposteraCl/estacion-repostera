@@ -22,12 +22,14 @@ export const PERMISSIONS = [
   'money.manage',
   // etiquetas de despacho de pedidos web (Jumpseller): ambos roles imprimen; conectar Jumpseller es settings.write
   'shipping.labels',
+  // boleta electrónica (Haulmer/OpenFactura) de una venta: quien puede ver la venta; conectar Haulmer es settings.write
+  'dte.issue',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 const VENDEDOR: ReadonlySet<Permission> = new Set<Permission>([
   'sale.create', 'sale.read.own_today', 'sale.reprint.own_today', 'product.read.public', 'unit.read',
-  'inventory.read.stock', 'dashboard.seller', 'cash.close', 'shipping.labels',
+  'inventory.read.stock', 'dashboard.seller', 'cash.close', 'shipping.labels', 'dte.issue',
 ]);
 const ADMIN: ReadonlySet<Permission> = new Set<Permission>(PERMISSIONS);
 

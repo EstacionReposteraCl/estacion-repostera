@@ -5,6 +5,7 @@ import { services } from "@/server/container";
 import { AppError } from "@/core/errors";
 import { ReceiptActions } from "@/components/receipt-actions";
 import { SaleAdminPanel } from "@/components/sale-admin-panel";
+import { DteSalePanel } from "@/components/dte-ui";
 import { peso, qty } from "@/lib/format";
 
 const dt = (iso: string) => new Date(iso).toLocaleString("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" });
@@ -15,7 +16,8 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   let sale, meta;
   try { [sale, meta] = await Promise.all([services.sales.getSaleForActor(actor, id), services.sales.metaForActor(actor, id)]); }
   catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
-  const [fin, footer] = await Promise.all([can(actor.role, "report.financial") ? services.sales.getSaleFinancial(actor, id) : null, services.sales.receiptFooter(actor)]);
+  const [fin, footer, dte, boleta] = await Promise.all([can(actor.role, "report.financial") ? services.sales.getSaleFinancial(actor, id) : null, services.sales.receiptFooter(actor),
+    can(actor.role, "dte.issue") ? services.dte.status(actor) : null, can(actor.role, "dte.issue") ? services.dte.forSale(actor, id) : null]);
   return (
     <main className="page">
       {nueva && <p className="ok noprint" role="status">Venta registrada. Folio N° {sale.folio}.</p>}
@@ -46,6 +48,8 @@ export default async function SalePage({ params, searchParams }: { params: Promi
         <footer>{footer && <>{footer}<br /></>}Documento interno, no válido como boleta.<br />¡Gracias por tu compra!</footer>
       </article>
       <ReceiptActions saleId={sale.id} fresh={Boolean(nueva)} />
+      {dte && <DteSalePanel saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} voided={sale.status === "VOIDED"}
+        card={meta.payments.some((p) => /d[ée]bito|cr[ée]dito|tuu/i.test(p.method))} />}
       {fin && <SaleAdminPanel saleId={sale.id} status={sale.status} fin={fin.financial} charges={fin.charges} />}
     </main>
   );

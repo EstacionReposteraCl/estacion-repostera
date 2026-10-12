@@ -221,7 +221,11 @@ export interface MoneyOps {
   moveExists(id: string, branchId: string): Promise<{ voided: boolean } | null>;
 }
 /** Configuración de integraciones guardada en la bitácora ('integration.set'): devuelve el `after` más reciente. */
-export interface IntegrationStore { latest(name: string): Promise<Record<string, unknown> | null> }
+export interface IntegrationStore {
+  latest(name: string): Promise<Record<string, unknown> | null>;
+  /** `after` del registro más reciente de la bitácora con esa acción, entidad e id (p. ej. la boleta emitida de una venta). */
+  latestEntry(action: string, entity: string, entityId: string): Promise<Record<string, unknown> | null>;
+}
 export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; money: MoneyOps; integrations: IntegrationStore; now?: () => Date }
 
 // ---------------------------------------------------------------- configuración (solo ADMINISTRADOR)

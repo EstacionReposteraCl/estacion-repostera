@@ -12,10 +12,12 @@ import { createExpensesService } from './expenses.service.ts';
 import { createCashService } from './cash.service.ts';
 import { createMoneyService } from './money.service.ts';
 import { createShippingService } from './shipping.service.ts';
+import { createDteService } from './dte.service.ts';
 
 export function createServices(p: Ports) {
+  const sales = createSalesService({ uow: p.uow, catalog: p.catalog, sales: p.sales, now: p.now });
   return {
-    sales: createSalesService({ uow: p.uow, catalog: p.catalog, sales: p.sales, now: p.now }),
+    sales,
     purchases: createPurchasesService({ uow: p.uow, catalog: p.catalog, purchases: p.purchases }),
     inventory: createInventoryService({ uow: p.uow, catalog: p.catalog }),
     products: createProductsService({ uow: p.uow, products: p.products }),
@@ -26,6 +28,7 @@ export function createServices(p: Ports) {
     cash: createCashService({ uow: p.uow, cash: p.cash, catalog: p.catalog, now: p.now }),
     money: createMoneyService({ uow: p.uow, money: p.money, catalog: p.catalog, now: p.now }),
     shipping: createShippingService({ uow: p.uow, integrations: p.integrations }),
+    dte: createDteService({ uow: p.uow, integrations: p.integrations, catalog: p.catalog, now: p.now, canSee: (actor, id) => sales.getSaleForActor(actor, id, true) }),
   };
 }
 export type Services = ReturnType<typeof createServices>;

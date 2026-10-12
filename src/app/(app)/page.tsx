@@ -16,6 +16,7 @@ const MODULES: { perm: Permission; title: string; text: string; href?: string }[
   { perm: "money.manage", title: "Dinero disponible", text: "Cuánto dinero deberías tener en caja, banco, Mercado Pago, TUU y Rappi.", href: "/dinero" },
   { perm: "report.financial", title: "Reportes", text: "Ventas, costo, ganancia real, productos, vendedores e inventario.", href: "/reportes" },
   { perm: "user.write", title: "Usuarios", text: "Crear, desactivar, roles y contraseñas temporales.", href: "/usuarios" },
+  { perm: "settings.write", title: "Boleta electrónica", text: "Conexión con Haulmer para emitir boletas desde las ventas.", href: "/boletas" },
   { perm: "settings.write", title: "Configuración", text: "Datos del comprobante, comisiones, canales y medios de pago.", href: "/configuracion" },
 ];
 
