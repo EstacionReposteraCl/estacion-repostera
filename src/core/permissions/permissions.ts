@@ -20,12 +20,14 @@ export const PERMISSIONS = [
   'cash.close', 'cash.review',
   // dinero disponible (punto de partida, traspasos, con qué se pagó cada compra/gasto): solo administrador
   'money.manage',
+  // etiquetas de despacho de pedidos web (Jumpseller): ambos roles imprimen; conectar Jumpseller es settings.write
+  'shipping.labels',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 const VENDEDOR: ReadonlySet<Permission> = new Set<Permission>([
   'sale.create', 'sale.read.own_today', 'sale.reprint.own_today', 'product.read.public', 'unit.read',
-  'inventory.read.stock', 'dashboard.seller', 'cash.close',
+  'inventory.read.stock', 'dashboard.seller', 'cash.close', 'shipping.labels',
 ]);
 const ADMIN: ReadonlySet<Permission> = new Set<Permission>(PERMISSIONS);
 

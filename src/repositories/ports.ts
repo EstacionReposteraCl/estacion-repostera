@@ -220,7 +220,9 @@ export interface MoneyOps {
   outflowExists(kind: 'PURCHASE' | 'EXPENSE', id: string, branchId: string): Promise<boolean>;
   moveExists(id: string, branchId: string): Promise<{ voided: boolean } | null>;
 }
-export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; money: MoneyOps; now?: () => Date }
+/** Configuración de integraciones guardada en la bitácora ('integration.set'): devuelve el `after` más reciente. */
+export interface IntegrationStore { latest(name: string): Promise<Record<string, unknown> | null> }
+export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; money: MoneyOps; integrations: IntegrationStore; now?: () => Date }
 
 // ---------------------------------------------------------------- configuración (solo ADMINISTRADOR)
 export interface BusinessSettingsRow { legalName: string; taxId: string | null; address: string | null; phone: string | null; email: string | null; receiptFooter: string | null; timezone: string; vatRate: number }

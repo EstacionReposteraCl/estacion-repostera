@@ -14,7 +14,7 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
     const [mine, today] = await Promise.all([services.sales.listSales(actor, 200), services.reports.sellerToday(actor)]);
     return (
       <main className="page">
-        <div className="pagehead"><h1>Mis ventas de hoy</h1><Link className="btn btn-primary" href="/ventas/nueva">+ Nueva venta</Link></div>
+        <div className="pagehead"><h1>Mis ventas de hoy</h1><Link className="btn" href="/despacho">Etiquetas de despacho</Link><Link className="btn btn-primary" href="/ventas/nueva">+ Nueva venta</Link></div>
         <p className="muted">{today.count} venta(s) · <strong>{peso(today.total)}</strong></p>
         {mine.length === 0 ? <p className="muted">Aún no registras ventas hoy.</p> : (
           <div className="tablewrap"><table className="list">
@@ -33,7 +33,7 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
   for (const s of r.rows) if (s.status === "COMPLETED") for (const p of s.payments) byMethod.set(p.method, (byMethod.get(p.method) ?? 0) + p.amount);
   return (
     <main className="page">
-      <div className="pagehead"><h1>Ventas</h1><Link className="btn btn-primary" href="/ventas/nueva">+ Nueva venta</Link></div>
+      <div className="pagehead"><h1>Ventas</h1><Link className="btn" href="/despacho">Etiquetas de despacho</Link><Link className="btn btn-primary" href="/ventas/nueva">+ Nueva venta</Link></div>
       <form className="filters">
         <label className="inline small">Desde <input type="date" name="desde" defaultValue={r.from} /></label>
         <label className="inline small">Hasta <input type="date" name="hasta" defaultValue={r.to} /></label>

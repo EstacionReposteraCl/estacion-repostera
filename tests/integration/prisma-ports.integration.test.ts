@@ -323,3 +323,12 @@ test('dinero disponible en Postgres real: ventas por medio de pago, comisión TU
   st = await svc.money.status(admin); assert.equal(st.moves[0].voided, true); assert.equal(line('TUU').expected, 1964);
   assert.equal(await code(svc.money.status(seller)), 'FORBIDDEN');
 });
+
+test('integraciones en Postgres real: la configuración más reciente de Jumpseller se lee de la bitácora', async () => {
+  const ports = createPrismaPorts(db);
+  await ports.uow.run((tx) => tx.audit.write({ action: 'integration.set', entity: 'jumpseller', entityId: 'jumpseller', userId: admin.userId, after: { login: `a-${run}`, tokenBox: 'x' } }));
+  await new Promise((r) => setTimeout(r, 5));
+  await ports.uow.run((tx) => tx.audit.write({ action: 'integration.set', entity: 'jumpseller', entityId: 'jumpseller', userId: admin.userId, after: { login: `b-${run}`, tokenBox: 'y' } }));
+  assert.equal((await ports.integrations.latest('jumpseller'))?.login, `b-${run}`);
+  assert.equal(await ports.integrations.latest(`otra-${run}`), null);
+});

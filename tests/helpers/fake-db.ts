@@ -150,7 +150,8 @@ export class FakeDb implements State {
     outflowExists: async (kind, id) => (kind === 'PURCHASE' ? this.purchases.has(id) : this.expensesMap.has(id)) || this.moneyData.outflows.some((o) => o.kind === kind && o.id === id),
     moveExists: async (id, b) => { const i = Number(id.replace(/^mm/, '')); const e = this.audit[i]; if (!e || e.action !== 'money.move' || (e.after as { branchId: string }).branchId !== b) return null; return { voided: this.audit.some((x) => x.action === 'money.move.void' && x.entityId === id) }; },
   };
-  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, cash: this.cashOps, money: this.moneyOps, now: this.now }; }
+  integrations = { latest: async (name: string) => { const e = [...this.audit].reverse().find((x) => x.action === 'integration.set' && x.entity === name); return (e?.after as Record<string, unknown>) ?? null; } };
+  get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, cash: this.cashOps, money: this.moneyOps, integrations: this.integrations, now: this.now }; }
 
   private tx(): Tx {
     const self = this;

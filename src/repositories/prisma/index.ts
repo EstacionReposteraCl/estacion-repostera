@@ -642,5 +642,10 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     },
   };
 
-  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases, expenses, cash: cashOps(client), money: moneyOps(client) };
+  return { uow, catalog, products, sales, reports, users, authAdmin, settings, purchases, expenses, cash: cashOps(client), money: moneyOps(client), integrations: {
+    async latest(name) {
+      const [r] = await client.$queryRaw<{ after: Record<string, unknown> | null }[]>`SELECT after FROM audit_logs WHERE action = 'integration.set' AND entity = ${name} ORDER BY "occurredAt" DESC, id DESC LIMIT 1`;
+      return r?.after ?? null;
+    },
+  } };
 }
