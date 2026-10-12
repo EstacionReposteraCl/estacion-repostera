@@ -21,7 +21,10 @@ const unwrap = (v: unknown) => { const o = obj(v); return obj('order' in o ? o.o
 export function toLabel(raw: unknown): ShippingLabel {
   const o = unwrap(raw); const sa = obj(o.shipping_address); const ba = obj(o.billing_address); const cu = obj(o.customer);
   const name = [str(sa.name), str(sa.surname)].filter(Boolean).join(' ') || str(cu.fullname) || [str(ba.name), str(ba.surname)].filter(Boolean).join(' ') || str(cu.name);
-  const phone = str(sa.phone) || str(cu.phone) || str(ba.phone);
+  const fields = Array.isArray(o.additional_fields) ? o.additional_fields.map(obj) : [];
+  const fieldPhone = str(fields.find((f) => /tel[eé]fono|phone|celular|whats|fono/i.test(str(f.label)) && str(f.value))?.value);
+  const prefix = str(cu.phone_prefix); const cuPhone = str(cu.phone) ? [prefix && !str(cu.phone).startsWith('+') ? `+${prefix.replace(/^\+/, '')}` : '', str(cu.phone)].filter(Boolean).join(' ') : '';
+  const phone = str(sa.phone) || cuPhone || str(ba.phone) || fieldPhone;
   const products = (Array.isArray(o.products) ? o.products : []).map((p) => { const x = obj(p); return { name: str(x.name), sku: str(x.sku), qty: num(x.qty) ?? num(x.quantity) ?? 1 }; }).filter((p) => p.name);
   const additional = Array.isArray(o.additional_information) ? o.additional_information.map((a) => { const x = obj(a); return [str(x.label), str(x.value)].filter(Boolean).join(': '); }).filter(Boolean).join(' · ') : str(o.additional_information);
   return {

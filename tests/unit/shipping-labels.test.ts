@@ -56,3 +56,9 @@ test('servicio de etiquetas: solo el administrador conecta (credenciales comprob
   await assert.rejects(svc.order(s1, -1), /inválido/);
   assert.deepEqual((await svc.recent(admin)).map((r) => r.id), [1017]);
 });
+
+test('etiqueta: teléfono desde el cliente (con prefijo) o, si no, desde un campo adicional del checkout', () => {
+  assert.equal(toLabel({ order: { customer: { phone: '912345678', phone_prefix: '56' } } }).phone, '+56 912345678');
+  assert.equal(toLabel({ order: { customer: { phone: null }, additional_fields: [{ label: 'accepts_marketing', value: 'No' }, { label: 'Teléfono', value: '+56 9 8765 4321' }] } }).phone, '+56 9 8765 4321');
+  assert.equal(toLabel({ order: { customer: { phone: null }, additional_fields: [{ label: 'accepts_marketing', value: 'No' }] } }).phone, '');
+});
