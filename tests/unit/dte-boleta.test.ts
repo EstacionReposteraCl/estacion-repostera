@@ -82,3 +82,21 @@ test('anular boleta: solo con la venta anulada, una sola vez, solo el administra
   assert.equal((await dte.creditNoteFor(admin, v.id))?.folio, nc.folio);
   await assert.rejects(dte.annulBoleta(admin, v.id, 'x'), /ya fue anulada con la nota de crédito/);
 });
+
+test('boleta anulada a mano en Haulmer: se registra sin emitir nada, una sola vez, y bloquea la nota de crédito automática', async () => {
+  const { db, svc } = world(); const h = fakeHaulmer();
+  const dte = createDteService({ uow: db.ports.uow, integrations: db.ports.integrations, catalog: db.ports.catalog, now: db.now, canSee: (a, id) => svc.sales.getSaleForActor(a, id, true), call: h.call, secret: () => 's'.repeat(32) });
+  db.setStock('main', 'az', 15000n, 100000, 2);
+  const v = await svc.sales.closeSale(admin, sale([{ productId: 'az', quantity: '1' }], 12000, 'kx', 'CASH'));
+  await dte.connect(admin, { apiKey: 'k'.repeat(32) }); await dte.issueBoleta(admin, v.id);
+  await assert.rejects(dte.markAnnulledManually(admin, v.id, null), /Primero anula la venta/);
+  await svc.sales.voidSale(admin, v.id, 'prueba', { ip: null });
+  await assert.rejects(dte.markAnnulledManually(s1, v.id, null), /permiso|autoriz|forbidden/i);
+  await assert.rejects(dte.markAnnulledManually(admin, v.id, -3), /inválido/);
+  const before = h.calls.length;
+  const m = await dte.markAnnulledManually(admin, v.id, 1234);
+  assert.equal(h.calls.length, before); assert.equal(m.manual, true); assert.equal(m.folio, 1234);
+  assert.equal((await dte.creditNoteFor(admin, v.id))?.manual, true);
+  await assert.rejects(dte.markAnnulledManually(admin, v.id, null), /ya figura anulada/);
+  await assert.rejects(dte.annulBoleta(admin, v.id, 'x'), /ya fue anulada/);
+});

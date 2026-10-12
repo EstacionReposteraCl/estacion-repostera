@@ -16,3 +16,7 @@ export async function annulBoletaAction(saleId: string): Promise<{ ok: true; fol
   try { const r = await services.dte.annulBoleta(await getActor(), String(saleId), "Anula boleta (venta anulada)"); revalidatePath(`/ventas/${saleId}`); return { ok: true, folio: r.folio }; }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
 }
+export async function markBoletaAnnulledAction(saleId: string, ncFolio: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try { const t = String(ncFolio ?? "").replace(/\D/g, ""); await services.dte.markAnnulledManually(await getActor(), String(saleId), t ? Number(t) : null); revalidatePath(`/ventas/${saleId}`); revalidatePath("/"); return { ok: true }; }
+  catch (e) { return { ok: false, error: toClientError(e).message }; }
+}

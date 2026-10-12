@@ -15,7 +15,7 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
   const { id } = await params;
   let n;
   try { n = await services.dte.creditNoteFor(actor, id); } catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
-  if (!n) notFound();
+  if (!n || n.manual) notFound();
   const e = n.emisor;
   return (
     <main className="page">

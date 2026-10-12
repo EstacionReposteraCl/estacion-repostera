@@ -22,6 +22,8 @@ export interface BoletaRecord {
 export interface CreditNoteRecord {
   tipo: 61; folio: number; token: string; fecha: string; env: OfEnv; refFolio: number; refFecha: string; reason: string; total: number; neto: number; iva: number; exento: number;
   lines: { name: string; qty: number; lineTotal: number; exempt?: boolean }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
+  /** true = anulada a mano en el Espacio de Trabajo de Haulmer (el sistema solo lo registra; no hay timbre para imprimir). */
+  manual?: boolean;
 }
 export interface Deps {
   uow: UnitOfWork; integrations: IntegrationStore; catalog: CatalogReader; now?: () => Date;
@@ -77,6 +79,21 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
      * Anula ante el SII la boleta de una venta ANULADA, emitiendo una nota de crédito (61, CodRef 1) por el total.
      * Solo ADMINISTRADOR (quien anula ventas). Una sola vez por venta.
      */
+    /** Registra que la boleta ya se anuló A MANO en Haulmer (no emite nada). Folio de la nota de crédito opcional. */
+    async markAnnulledManually(actor: Actor | null, saleId: string, ncFolio: number | null): Promise<CreditNoteRecord> {
+      assertCan(actor, 'sale.void'); saleId = String(saleId);
+      await canSee(actor, saleId);
+      const b = await existing(saleId); if (!b) throw businessRule('Esta venta no tiene boleta electrónica emitida desde el sistema.');
+      const prevNc = await existingNc(saleId); if (prevNc) throw businessRule(`La boleta N° ${b.folio} ya figura anulada${prevNc.folio ? ` con la nota de crédito N° ${prevNc.folio}` : ''}.`);
+      if (ncFolio !== null && (!Number.isSafeInteger(ncFolio) || ncFolio <= 0)) throw validation('N° de nota de crédito inválido.');
+      const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
+      if (got.sale.status !== 'VOIDED') throw businessRule('Primero anula la venta.');
+      const fecha = businessDateOf(now(), (await catalog.businessSettings()).timezone);
+      const rec: CreditNoteRecord = { tipo: 61, folio: ncFolio ?? 0, token: '', fecha, env: b.env, refFolio: b.folio, refFecha: b.fecha, reason: 'Anulada manualmente en Haulmer', total: b.total, neto: b.neto, iva: b.iva, exento: b.exento,
+        lines: b.lines, emisor: b.emisor, resolucion: b.resolucion, timbre: null, warning: null, saleFolio: b.saleFolio, manual: true };
+      await uow.run((tx) => tx.audit.write({ action: 'dte.void', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec }));
+      return rec;
+    },
     async annulBoleta(actor: Actor | null, saleId: string, reason: string): Promise<CreditNoteRecord> {
       assertCan(actor, 'sale.void'); saleId = String(saleId);
       await canSee(actor, saleId);
