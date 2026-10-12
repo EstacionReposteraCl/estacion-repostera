@@ -19,7 +19,7 @@ export default async function ShippingLabelPage({ params }: { params: Promise<{ 
       <article className="receipt label">
         <header>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-empresa-bn.png" alt="" className="rc-logo" width={108} height={90} />
+          <img src="/logo-er-bn.png" alt="Estación Repostera" className="rc-logo lb-logo" width={72} height={101} />
           <strong>ESTACIÓN REPOSTERA</strong>
           <div className="lb-order">PEDIDO #{o.id}</div>
         </header>
