@@ -189,8 +189,8 @@ table.list.fin td { padding: 6px 4px; }
   body { background: #fff; }
   .topbar, .noprint, .ok { display: none !important; }
   .page { padding: 0; max-width: none; }
-  .receipt { border: 0; max-width: 80mm; margin: 0; padding: 0; }
-  @page { margin: 4mm; }
+  .receipt { border: 0; max-width: 100%; margin: 0; padding: 0; }
+  @page { margin: 1mm; }   /* la impresora térmica (58 u 80 mm) define el ancho; el comprobante usa todo el ancho imprimible */
 }
 .inline select { padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
 .filters input[type=date] { width: auto; padding: 8px; }
@@ -332,7 +332,9 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 /* Impresoras térmicas (boletas): no imprimen grises; todo en negro puro, letra sin serifa y más gruesa */
 @media print {
   .receipt, .receipt * { color: #000 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .receipt { font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 13px; font-weight: 700; line-height: 1.35; }
+  .receipt { font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 12px; font-weight: 700; line-height: 1.3; width: 100%; max-width: 100% !important; }
+  .receipt-wrap, .page { width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  .receipt .rc-logo { width: 22mm; }
   .receipt .rc-total { font-size: 16px; font-weight: 900; }
   .receipt table { border-top: 1px dashed #000; border-bottom: 1px dashed #000; }
   .receipt [style*="dashed"] { border-color: #000 !important; }
