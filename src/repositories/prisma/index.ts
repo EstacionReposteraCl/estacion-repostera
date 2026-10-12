@@ -256,6 +256,12 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
         f.categoryId ? { categoryId: f.categoryId } : {},
         text ? { OR: [{ name: { contains: text, mode: 'insensitive' } }, { sku: { equals: text, mode: 'insensitive' } }, { barcodes: { some: { code: text } } }, { brand: { contains: text, mode: 'insensitive' } }] } : {},
       ] };
+      if (f.stock === 'sin' || f.stock === 'bajo') {
+        const ids = f.stock === 'sin'
+          ? await client.$queryRaw<{ id: string }[]>`SELECT p.id FROM products p LEFT JOIN stock_levels sl ON sl."productId" = p.id AND sl."branchId" = ${branchId} WHERE p.kind = 'GOODS' AND coalesce(sl.quantity, 0) <= 0`
+          : await client.$queryRaw<{ id: string }[]>`SELECT p.id FROM products p JOIN stock_levels sl ON sl."productId" = p.id AND sl."branchId" = ${branchId} WHERE p.kind = 'GOODS' AND sl.quantity > 0 AND sl.quantity <= greatest(sl."minQuantity", 2)`;
+        (where.AND as Prisma.ProductWhereInput[]).push({ id: { in: ids.map((r) => r.id) } });
+      }
       const [total, rows] = await Promise.all([client.product.count({ where }),
         client.product.findMany({ where, include: productInclude(branchId, true), orderBy: { name: 'asc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize })]);
       return { total, rows: rows.map((p) => searchRow(p as ProductFull, true)) };
@@ -563,7 +569,7 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     async inventorySnapshot(branchId: string) {
       const [agg, low] = await Promise.all([
         client.$queryRaw<{ with_stock: bigint; without_stock: bigint; value: bigint | null }[]>`
-          SELECT count(*) FILTER (WHERE coalesce(sl.quantity, 0) > 0) AS with_stock, count(*) FILTER (WHERE coalesce(sl.quantity, 0) = 0) AS without_stock, coalesce(sum(pc."inventoryValue"), 0) AS value
+          SELECT count(*) FILTER (WHERE coalesce(sl.quantity, 0) > 0) AS with_stock, count(*) FILTER (WHERE coalesce(sl.quantity, 0) <= 0) AS without_stock, coalesce(sum(pc."inventoryValue"), 0) AS value
           FROM products p LEFT JOIN stock_levels sl ON sl."productId" = p.id AND sl."branchId" = ${branchId} LEFT JOIN product_costs pc ON pc."productId" = p.id AND pc."branchId" = ${branchId}
           WHERE p."isActive" AND p.kind = 'GOODS'`,
         client.$queryRaw<{ id: string; name: string; sku: string; qty: string }[]>`

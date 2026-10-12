@@ -51,8 +51,8 @@ async function adminData(actor: Actor) {
     if (/efectivo/i.test(p.method)) by.cash += p.amount; else if (/d[eé]bito|cr[eé]dito|tarjeta/i.test(p.method)) by.card += p.amount; else by.other += p.amount;
   }
   const alerts: Alert[] = [];
-  if (snap?.lowStock.length) alerts.push({ text: `${snap.lowStock.length >= 30 ? "30 o más" : snap.lowStock.length} producto(s) con stock bajo (${snap.lowStock.slice(0, 3).map((l) => l.name).join(", ")}${snap.lowStock.length > 3 ? "…" : ""})`, href: "/reportes", tone: "warn" });
-  if (snap?.productsWithoutStock) alerts.push({ text: `${snap.productsWithoutStock} producto(s) sin stock`, href: "/inventario" });
+  if (snap?.lowStock.length) alerts.push({ text: `${snap.lowStock.length >= 30 ? "30 o más" : snap.lowStock.length} producto(s) con stock bajo (${snap.lowStock.slice(0, 3).map((l) => l.name).join(", ")}${snap.lowStock.length > 3 ? "…" : ""})`, href: "/inventario?stock=bajo", tone: "warn" });
+  if (snap?.productsWithoutStock) alerts.push({ text: `${snap.productsWithoutStock} producto(s) sin stock`, href: "/inventario?stock=sin" });
   const paid = (orders ?? []).filter((o) => o.status === "Paid" && o.createdAt && Date.now() - new Date(o.createdAt).getTime() < 3 * 86400e3);
   if (paid.length) alerts.push({ text: `${paid.length} pedido(s) web pagado(s) en los últimos 3 días: revisa las etiquetas`, href: "/despacho" });
   const unassigned = money?.outflows.filter((o) => o.paidFrom === null).length ?? 0;

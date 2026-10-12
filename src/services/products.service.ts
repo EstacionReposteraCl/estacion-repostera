@@ -18,7 +18,7 @@ export function createProductsService({ uow, products }: Deps) {
     async listAdmin(actor: Actor | null, f: Partial<ProductListFilter>): Promise<{ total: number; page: number; pageSize: number; rows: ProductAdminDTO[] }> {
       assertCan(actor, 'product.read.admin');
       const pageSize = Math.min(Math.max(f.pageSize ?? 50, 1), 200); const page = Math.max(Math.trunc(f.page ?? 1), 1);
-      const r = await products.listAdmin(actor.branchId, { q: f.q?.trim() || undefined, categoryId: f.categoryId || null, status: f.status ?? 'active', page, pageSize });
+      const r = await products.listAdmin(actor.branchId, { q: f.q?.trim() || undefined, categoryId: f.categoryId || null, status: f.status ?? 'active', page, pageSize, stock: f.stock === 'sin' || f.stock === 'bajo' ? f.stock : null });
       return { total: r.total, page, pageSize, rows: r.rows.map(toProductAdminDTO) };
     },
     async formOptions(actor: Actor | null): Promise<ProductFormOptions> { assertCan(actor, 'product.write'); return products.options(); },

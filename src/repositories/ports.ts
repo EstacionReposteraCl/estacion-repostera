@@ -116,7 +116,7 @@ export interface PurchaseItemRecord {
 }
 export interface ProductWriteRow { id: string; sku: string; name: string; kind: 'GOODS' | 'SERVICE'; unitCode: string; salePrice: Peso; isActive: boolean }
 export interface ProductSaveInput { id?: string; sku: string; name: string; unitCode: string; kind: 'GOODS' | 'SERVICE'; salePrice: Peso; categoryId?: string | null; vatTreatment: 'AFECTO' | 'EXENTO'; barcodes?: string[]; brand?: string | null }
-export interface ProductListFilter { q?: string; categoryId?: string | null; status: 'active' | 'archived' | 'all'; page: number; pageSize: number }
+export interface ProductListFilter { q?: string; categoryId?: string | null; status: 'active' | 'archived' | 'all'; page: number; pageSize: number; /** sin = stock 0 o menos; bajo = 1..max(mínimo, 2) */ stock?: 'sin' | 'bajo' | null }
 export interface ProductFormOptions { units: { code: string; name: string; symbol: string }[]; categories: { id: string; name: string }[] }
 
 /** Fila cruda de búsqueda. Puede traer datos sensibles SOLO en el campo `adminOnly`; los DTO públicos jamás lo leen. */
