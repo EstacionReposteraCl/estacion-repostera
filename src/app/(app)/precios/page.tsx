@@ -1,10 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/session";
 import { can } from "@/core/permissions";
 import { services } from "@/server/container";
-import { peso } from "@/lib/format";
-import { PriceSimulator, type SimChannel, type SimProduct } from "@/components/price-simulator";
+import { PriceSimulator, ProductPicker, type SimChannel, type SimProduct } from "@/components/price-simulator";
 
 type SP = Promise<{ q?: string; id?: string }>;
 const minus = (date: string, n: number) => { const d = new Date(date + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
@@ -15,10 +13,7 @@ export default async function PricesPage({ searchParams }: { searchParams: SP })
   if (!can(actor.role, "report.financial") || !can(actor.role, "settings.write")) redirect("/");
   const sp = await searchParams; const q = (sp.q ?? "").trim();
 
-  const [list, product] = await Promise.all([
-    q ? services.products.listAdmin(actor, { q, status: "active", pageSize: 15 }) : null,
-    sp.id ? services.products.getAdmin(actor, sp.id).catch(() => null) : null,
-  ]);
+  const product = sp.id ? await services.products.getAdmin(actor, sp.id).catch(() => null) : null;
 
   let sim: { product: SimProduct; channels: SimChannel[] } | null = null;
   if (product) {
@@ -48,18 +43,7 @@ export default async function PricesPage({ searchParams }: { searchParams: SP })
     <main className="page page-wide">
       <div className="pagehead"><h1>Simulador de precios</h1></div>
       <p className="muted" style={{ marginTop: -6, maxWidth: 820 }}>Prueba precios y descuentos por canal y mira cuánto te queda de verdad después del IVA, la comisión y el costo. No cambia ningún precio del sistema.</p>
-      <form className="filters" role="search">
-        <input type="search" name="q" defaultValue={q} placeholder="Busca un producto por nombre, SKU o código de barras" autoFocus={!sim} />
-        <button className="btn" type="submit">Buscar</button>
-      </form>
-      {list && (list.rows.length === 0 ? <p className="muted">No encontré productos con “{q}”.</p> : (
-        <div className="tablewrap" style={{ maxWidth: 900, marginBottom: 16 }}><table className="list">
-          <thead><tr><th>Producto</th><th>SKU</th><th className="num">Precio</th><th></th></tr></thead>
-          <tbody>{list.rows.map((r) => (
-            <tr key={r.id}><td>{r.name}</td><td className="small">{r.sku}</td><td className="num">{peso(r.salePrice)}</td><td><Link className="btn btn-small" href={`/precios?id=${r.id}`}>Simular</Link></td></tr>
-          ))}</tbody>
-        </table></div>
-      ))}
+      <ProductPicker key={product?.id ?? "none"} initial={product ? "" : q} />
       {sp.id && !product && <p className="error">No encontré ese producto.</p>}
       {sim && <PriceSimulator key={sim.product.id} product={sim.product} channels={sim.channels} />}
     </main>

@@ -7,19 +7,10 @@ import { MainNav } from "@/components/main-nav";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { actor, name } = await requireActor();
+  // Menú corto: lo demás se abre desde las secciones del Inicio.
   const nav = [
     { href: "/", label: "Inicio", show: true },
     { href: "/ventas/nueva", label: "Caja", show: can(actor.role, "sale.create") },
-    { href: "/ventas", label: can(actor.role, "sale.read.any") ? "Ventas" : "Mis ventas", show: can(actor.role, "sale.read.own_today") },
-    { href: "/caja/cierre", label: "Cierre", show: can(actor.role, "cash.close") },
-    { href: "/despacho", label: "Despacho", show: can(actor.role, "shipping.labels") },
-    { href: "/productos", label: "Productos", show: can(actor.role, "product.read.public") },
-    { href: "/inventario", label: "Inventario", show: can(actor.role, "inventory.adjust") },
-    { href: "/compras", label: "Compras", show: can(actor.role, "purchase.read") },
-    { href: "/gastos", label: "Gastos", show: can(actor.role, "expense.write") },
-    { href: "/dinero", label: "Dinero", show: can(actor.role, "money.manage") },
-    { href: "/reportes", label: "Reportes", show: can(actor.role, "report.financial") },
-    { href: "/usuarios", label: "Usuarios", show: can(actor.role, "user.write") },
     { href: "/configuracion", label: "Configuración", show: can(actor.role, "settings.write") },
   ].filter((n) => n.show);
   return (
