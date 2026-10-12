@@ -6,6 +6,9 @@ import type { UnitOfWork, CatalogReader, CashOps, CashSummary, CashCloseRecord, 
 
 /** Medios que se cuentan en el cierre: lo que queda en el local (efectivo) o en la máquina TUU (débito y crédito).
  *  Plataformas (Mercado Pago/ML, Rappi) y transferencias llegan después y no entran al arqueo (sí a reportes y a Dinero). */
+/** Fondo fijo con que parte la caja cada turno; al cerrar se retira todo lo que exceda este monto. */
+export const STANDARD_FLOAT = 20000;
+
 export const CLOSE_METHODS = ['CASH', 'DEBIT', 'CREDIT'];
 export interface Deps { uow: UnitOfWork; cash: CashOps; catalog: CatalogReader; now?: () => Date }
 /** Lo que ve el vendedor de un cierre: lo que él contó, sin el esperado ni la diferencia ("conteo a ciegas"). */
@@ -37,11 +40,11 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
     async status(actor: Actor | null): Promise<{ date: string; closesToday: number; since: Date | null; suggestedFloat: number; salesCount: number; summary: CashSummary | null; review: boolean; open: CashOpenRecord | null; methods: { code: string; name: string }[] }> {
       assertCan(actor, 'cash.close');
       const date = await today();
-      const [last, closesToday, lastEver] = await Promise.all([cash.lastClose(actor.branchId, date), cash.closes(actor.branchId, { from: date, to: date, limit: 500 }), cash.closes(actor.branchId, { from: '2000-01-01', to: date, limit: 1 })]);
+      const [last, closesToday] = await Promise.all([cash.lastClose(actor.branchId, date), cash.closes(actor.branchId, { from: date, to: date, limit: 500 })]);
       const [summary, open] = await Promise.all([cash.summary(actor.branchId, date, last?.at ?? null, CLOSE_METHODS), currentOpen(cash, actor.branchId, date)]);
       const review = can(actor.role, 'cash.review');
       const methods = summary.byMethod.filter((m) => m.code !== 'CASH').map((m) => ({ code: m.code, name: m.name }));   // medios a declarar (sin montos para el vendedor)
-      return { date, closesToday: closesToday.length, since: last?.at ?? null, suggestedFloat: open?.float ?? lastEver[0]?.float ?? 0, salesCount: summary.salesCount, summary: review ? summary : null, review, open, methods };
+      return { date, closesToday: closesToday.length, since: last?.at ?? null, suggestedFloat: open?.float ?? STANDARD_FLOAT, salesCount: summary.salesCount, summary: review ? summary : null, review, open, methods };
     },
 
     /** Apertura: quien abre fija el fondo inicial (sencillo). Una sola apertura vigente por turno. */

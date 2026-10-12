@@ -273,7 +273,7 @@ test('cierre de caja en Postgres real: tramo desde el último cierre, efectivo p
   await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '2' }], channelId: ids.LOCAL, payments: [{ methodId: ids.CASH, amount: 4000 }], idempotencyKey: `cj1-${run}` });
   await svc.sales.closeSale(seller, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.LOCAL, payments: [{ methodId: ids.DEBIT, amount: 2000 }], idempotencyKey: `cj2-${run}` });
   const st = await svc.cash.status(admin);
-  assert.equal(st.salesCount, 2); assert.equal(st.summary!.cash, 4000); assert.equal(st.summary!.total, 6000); assert.equal(st.suggestedFloat, 0);
+  assert.equal(st.salesCount, 2); assert.equal(st.summary!.cash, 4000); assert.equal(st.summary!.total, 6000); assert.equal(st.suggestedFloat, 20000);
   const sst = await svc.cash.status(seller); assert.equal(sst.summary, null); assert.equal(sst.salesCount, 2);
   const blindRec = await svc.cash.close(seller, { float: 10000, counted: 13500, withdrawals: 0, note: 'faltan 500' });
   assert.ok(!('diff' in blindRec)); assert.equal(blindRec.counted, 13500);

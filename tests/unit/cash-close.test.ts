@@ -42,7 +42,7 @@ test('cierres por turno: el segundo cierre del día solo cuenta las ventas poste
   db.cashSales.push({ date: '2026-10-07', at: T('15:00'), total: 2500, payments: [efe(2500)] }); // venta posterior al cierre
   setClock(T('20:00'));
   const st = await svc.cash.status(admin);
-  assert.equal(st.closesToday, 1); assert.equal(st.salesCount, 1); assert.equal(st.summary!.cash, 2500); assert.equal(st.suggestedFloat, 15000);
+  assert.equal(st.closesToday, 1); assert.equal(st.salesCount, 1); assert.equal(st.summary!.cash, 2500); assert.equal(st.suggestedFloat, 20000);
   const r = await svc.cash.close(admin, { float: 15000, counted: 17500 }) as CashCloseRecord;
   assert.equal(r.seq, 2); assert.equal(r.expectedCash, 17500); assert.equal(r.diff, 0); assert.ok(r.periodFrom);
 });

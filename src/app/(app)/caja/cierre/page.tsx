@@ -6,7 +6,7 @@ import { peso } from "@/lib/format";
 import { CashCloseForm, CashOpenForm } from "@/components/cash-close-form";
 import { PrintButton } from "@/components/print-button";
 import type { CashCloseRecord } from "@/repositories/ports";
-import type { BlindClose } from "@/services/cash.service";
+import { STANDARD_FLOAT, type BlindClose } from "@/services/cash.service";
 
 const dmy = (s: string) => s.split("-").reverse().join("-");
 const hm = (d: Date) => new Intl.DateTimeFormat("es-CL", { timeZone: "America/Santiago", hour: "2-digit", minute: "2-digit" }).format(d);
@@ -59,6 +59,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
             <div><dt>− Retiros/pagos</dt><dd>{peso(r.withdrawals)}</dd></div>
             {isFull(r) && <div><dt>= Esperado</dt><dd>{peso(r.expectedCash)}</dd></div>}
             <div className="rc-total"><dt>CONTADO</dt><dd>{peso(r.counted)}</dd></div>
+            {r.counted > STANDARD_FLOAT && <div><dt>Retirar (deja {peso(STANDARD_FLOAT)})</dt><dd>{peso(r.counted - STANDARD_FLOAT)}</dd></div>}
             {isFull(r) && <div className="rc-total"><dt>{r.diff === 0 ? "CUADRA" : r.diff > 0 ? "SOBRANTE" : "FALTANTE"}</dt><dd>{signed(r.diff)}</dd></div>}
             {!isFull(r) && <div><dt>Ventas del turno</dt><dd>{r.salesCount}</dd></div>}
             {!isFull(r) && r.declared && Object.entries(r.declared).map(([k, val]) => <div key={k}><dt>Declarado {k === "DEBIT" ? "débito" : k === "CREDIT" ? "crédito" : k.toLowerCase().replace("_", " ")}</dt><dd>{peso(val)}</dd></div>)}

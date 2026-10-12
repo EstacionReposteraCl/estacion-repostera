@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { closeCashAction, openCashAction } from "@/actions/cash.actions";
 import { parseMoneyCents } from "@/core/money/parse-money";
 
+/** Fondo fijo de cada turno (igual que STANDARD_FLOAT del servicio de caja). */
+const FLOAT = 20000;
 const clp = (n: number) => (n < 0 ? "−$" : "$") + Math.abs(n).toLocaleString("es-CL");
 /** Pesos enteros ("20.000" -> 20000); vacío -> 0; inválido o con centavos -> null. */
 const pesos = (s: string) => { if (!s.trim()) return 0; const c = parseMoneyCents(s); return c === null || c % 100 !== 0 ? null : c / 100; };
@@ -56,6 +58,9 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
         {expected !== null && <tr className="arqueo-sub"><td>= Debería haber en la caja</td><td className="num"><b>{clp(expected)}</b></td></tr>}
         <tr className="arqueo-key"><td><b>Efectivo contado</b> (todo lo que hay ahora)</td><td className="num"><input id="cc-c" className="money money-big" inputMode="numeric" value={v.counted} onChange={(e) => setV({ ...v, counted: e.target.value })} placeholder="$" aria-label="Efectivo contado" />{bad(c, v.counted)}</td></tr>
         {diff !== null && <tr><td>Resultado</td><td className="num"><Diff d={diff} /></td></tr>}
+        {c !== null && c > 0 && (c >= FLOAT
+          ? <tr className="arqueo-key"><td><b>Retira de la caja</b><div className="muted small">deja {clp(FLOAT)} de fondo para el próximo turno</div></td><td className="num"><b>{clp(c - FLOAT)}</b></td></tr>
+          : <tr><td>Falta para completar el fondo de {clp(FLOAT)}</td><td className="num"><span className="pill pill-warn">{clp(FLOAT - c)}</span></td></tr>)}
       </tbody></table>
 
       {others.length > 0 && (<>
