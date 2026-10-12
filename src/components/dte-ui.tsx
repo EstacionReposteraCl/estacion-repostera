@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { connectHaulmerAction, issueBoletaAction } from "@/actions/dte.actions";
+import { connectHaulmerAction, issueBoletaAction, annulBoletaAction } from "@/actions/dte.actions";
 
 export function HaulmerConnectForm() {
   const router = useRouter(); const [pending, start] = useTransition();
@@ -26,13 +26,23 @@ export function HaulmerConnectForm() {
   );
 }
 
-/** Panel en el detalle de la venta: emitir la boleta electrónica (una vez) e imprimirla. */
-export function DteSalePanel({ saleId, configured, canConfigure, folio, card, voided }: { saleId: string; configured: boolean; canConfigure: boolean; folio: number | null; card: boolean; voided: boolean }) {
+/** Panel en el detalle de la venta: emitir la boleta electrónica (una vez), imprimirla y, si la venta se anula, anularla con nota de crédito. */
+export function DteSalePanel({ saleId, configured, canConfigure, folio, card, voided, ncFolio = null, canVoid = false }: { saleId: string; configured: boolean; canConfigure: boolean; folio: number | null; card: boolean; voided: boolean; ncFolio?: number | null; canVoid?: boolean }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null); const [allowCard, setAllowCard] = useState(false);
   if (folio) return (
     <div className="formcard noprint" style={{ maxWidth: 520, margin: "16px auto 0" }}>
-      <p style={{ margin: 0 }}>✓ <b>Boleta electrónica N° {folio}</b> emitida.</p>
-      <div className="actions"><Link className="btn btn-primary" href={`/ventas/${saleId}/boleta`}>🖨 Ver e imprimir boleta</Link></div>
+      {ncFolio ? <p style={{ margin: 0 }}>Boleta electrónica N° {folio} <b>anulada</b> con la <b>nota de crédito N° {ncFolio}</b>.</p>
+        : voided ? <p className="error" style={{ margin: 0 }}>La venta está anulada, pero la <b>boleta N° {folio}</b> sigue vigente ante el SII.</p>
+        : <p style={{ margin: 0 }}>✓ <b>Boleta electrónica N° {folio}</b> emitida. <span className="muted small">Si anulas la venta, el sistema también anula esta boleta (nota de crédito).</span></p>}
+      <div className="actions">
+        <Link className={ncFolio || voided ? "btn" : "btn btn-primary"} href={`/ventas/${saleId}/boleta`}>🖨 Boleta</Link>
+        {ncFolio && <Link className="btn btn-primary" href={`/ventas/${saleId}/nota-credito`}>🖨 Nota de crédito</Link>}
+        {voided && !ncFolio && canVoid && <button className="btn btn-primary" type="button" disabled={pending} onClick={() => {
+          if (!confirm(`¿Emitir la nota de crédito que anula la boleta N° ${folio} ante el SII?`)) return;
+          setErr(null); start(async () => { const r = await annulBoletaAction(saleId); if (r.ok) router.refresh(); else setErr(r.error); });
+        }}>{pending ? "Anulando…" : "Anular boleta (nota de crédito)"}</button>}
+      </div>
+      {err && <p className="error" role="alert">{err}</p>}
     </div>
   );
   if (voided) return null;

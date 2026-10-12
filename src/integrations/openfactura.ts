@@ -5,7 +5,7 @@ export type OfEnv = 'prod' | 'dev';
 export const OF_HOST: Record<OfEnv, string> = { prod: 'https://api.haulmer.com', dev: 'https://dev-api.haulmer.com' };
 export type HttpCall = (url: string, init: { method: 'GET' | 'POST'; headers: Record<string, string>; body?: string }) => Promise<{ status: number; text: () => Promise<string> }>;
 
-export interface OfOrg { rut: string; razonSocial: string; giro: string; direccion: string; comuna: string; cdgSIISucur: string; direccionRegional: string; resolucion: { fecha: string; numero: number } }
+export interface OfOrg { rut: string; razonSocial: string; giro: string; direccion: string; comuna: string; cdgSIISucur: string; direccionRegional: string; resolucion: { fecha: string; numero: number }; acteco?: number | null }
 export interface BoletaLine { name: string; qty: number; lineTotal: number; exempt: boolean }
 export interface BoletaTotals { neto: number; iva: number; exento: number; total: number }
 export interface EmitResult { folio: number; token: string; timbre: string | null; resolucion: { fecha: string; numero: number } | null; warning: string | null }
@@ -18,7 +18,7 @@ export function toOrg(raw: unknown): OfOrg {
   const r = o(raw); const acts = Array.isArray(r.actividades) ? r.actividades.map(o) : []; const main = acts.find((a) => a.actividadPrincipal) ?? acts[0] ?? {};
   const res = o(r.resolucion);
   return { rut: s(r.rut), razonSocial: s(r.razonSocial), giro: s(r.glosaDescriptiva) || s(main.giro), direccion: s(r.direccion), comuna: s(r.comuna), cdgSIISucur: s(r.cdgSIISucur),
-    direccionRegional: s(r.direccionRegional), resolucion: { fecha: s(res.fecha), numero: Number(s(res.numero)) || 0 } };
+    direccionRegional: s(r.direccionRegional), resolucion: { fecha: s(res.fecha), numero: Number(s(res.numero)) || 0 }, acteco: Number(s(main.codigoActividadEconomica)) || null };
 }
 
 /** Medio de pago de la boleta (SII): 1 efectivo, 2 pago electrónico, 3 transferencia, 5 otro. */
@@ -46,6 +46,30 @@ export function buildBoleta(org: OfOrg, fecha: string, lines: BoletaLine[], medi
   return {
     dte: { Encabezado: { IdDoc, Emisor, Receptor: { RUTRecep: '66666666-6' }, Totales: { MntNeto: neto, ...(exento ? { MntExe: exento } : {}), IVA: iva, MntTotal: total } }, Detalle },
     totals: { neto, iva, exento, total },
+  };
+}
+
+/**
+ * Nota de crédito (61) que ANULA una boleta (CodRef 1, TpoDocRef 39) por el mismo detalle y montos.
+ * Montos brutos (IdDoc.MntBruto = 1) como la boleta; receptor genérico; Emisor con Acteco (formato de factura/nota).
+ */
+export function buildCreditNoteForBoleta(org: OfOrg, fecha: string, b: { folio: number; fecha: string; lines: BoletaLine[]; totals: BoletaTotals }, razon: string): Record<string, unknown> {
+  if (!org.acteco) throw new Error('Falta la actividad económica (Acteco) del emisor en Haulmer.');
+  const Detalle = b.lines.filter((l) => l.lineTotal > 0 && l.qty > 0).map((l, i) => {
+    const q = Math.round(l.qty * 1e6) / 1e6; const prc = q === 1 ? l.lineTotal : Math.round((l.lineTotal / q) * 1e6) / 1e6;
+    return { NroLinDet: i + 1, NmbItem: cut(l.name.replace(/[\u2013\u2014]/g, '-'), 80), QtyItem: q, PrcItem: prc, MontoItem: l.lineTotal, ...(l.exempt ? { IndExe: 1 } : {}) };
+  });
+  const Emisor: Record<string, unknown> = { RUTEmisor: org.rut, RznSoc: cut(org.razonSocial, 100), GiroEmis: cut(org.giro, 80), Acteco: org.acteco, DirOrigen: cut(org.direccion, 70), CmnaOrigen: cut(org.comuna, 20) };
+  if (org.cdgSIISucur) Emisor.CdgSIISucur = org.cdgSIISucur;
+  const t = b.totals;
+  return {
+    Encabezado: {
+      IdDoc: { TipoDTE: 61, Folio: 0, FchEmis: fecha, MntBruto: 1 }, Emisor,
+      Receptor: { RUTRecep: '66666666-6', RznSocRecep: 'CLIENTE BOLETA', GiroRecep: 'PARTICULAR', DirRecep: cut(org.direccion, 70), CmnaRecep: cut(org.comuna, 20) },
+      Totales: { MntNeto: t.neto, ...(t.exento ? { MntExe: t.exento } : {}), TasaIVA: '19', IVA: t.iva, MntTotal: t.total },
+    },
+    Detalle,
+    Referencia: [{ NroLinRef: 1, TpoDocRef: '39', FolioRef: b.folio, FchRef: b.fecha, CodRef: 1, RazonRef: cut(razon || 'Anula boleta', 90) }],
   };
 }
 

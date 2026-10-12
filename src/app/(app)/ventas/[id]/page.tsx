@@ -18,6 +18,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
   const [fin, footer, dte, boleta] = await Promise.all([can(actor.role, "report.financial") ? services.sales.getSaleFinancial(actor, id) : null, services.sales.receiptFooter(actor),
     can(actor.role, "dte.issue") ? services.dte.status(actor) : null, can(actor.role, "dte.issue") ? services.dte.forSale(actor, id) : null]);
+  const nc = boleta ? await services.dte.creditNoteFor(actor, id) : null;
   return (
     <main className="page">
       {nueva && <p className="ok noprint" role="status">Venta registrada. Folio N° {sale.folio}.</p>}
@@ -48,7 +49,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
         <footer>{footer && <>{footer}<br /></>}Documento interno, no válido como boleta.<br />¡Gracias por tu compra!</footer>
       </article>
       <ReceiptActions saleId={sale.id} fresh={Boolean(nueva)} />
-      {dte && <DteSalePanel saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} voided={sale.status === "VOIDED"}
+      {dte && <DteSalePanel saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} ncFolio={nc?.folio ?? null} canVoid={can(actor.role, "sale.void")} voided={sale.status === "VOIDED"}
         card={meta.payments.some((p) => /d[ée]bito|cr[ée]dito|tuu/i.test(p.method))} />}
       {fin && <SaleAdminPanel saleId={sale.id} status={sale.status} fin={fin.financial} charges={fin.charges} />}
     </main>

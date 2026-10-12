@@ -2,7 +2,7 @@ import { assertCan, can, type Actor } from '../core/permissions/permissions.ts';
 import { validation, businessRule, notFound } from '../core/errors/index.ts';
 import { seal, open } from '../core/crypto/secret-box.ts';
 import { businessDateOf } from '../core/time/business-date.ts';
-import { openFacturaClient, buildBoleta, medioPagoFor, OpenFacturaError, type HttpCall, type OfEnv, type OfOrg } from '../integrations/openfactura.ts';
+import { openFacturaClient, buildBoleta, buildCreditNoteForBoleta, medioPagoFor, OpenFacturaError, type HttpCall, type OfEnv, type OfOrg } from '../integrations/openfactura.ts';
 import type { UnitOfWork, IntegrationStore, CatalogReader } from '../repositories/ports.ts';
 
 const PURPOSE = 'integration:openfactura';
@@ -16,7 +16,12 @@ const milliToNumber = (m: bigint) => Number(m) / 1000;
 /** Boleta emitida (bitácora: action 'dte.issue', entidad Sale). Es lo que se imprime y se reimprime. */
 export interface BoletaRecord {
   tipo: 39; folio: number; token: string; fecha: string; env: OfEnv; total: number; neto: number; iva: number; exento: number; medioPago: number | null;
-  lines: { name: string; qty: number; lineTotal: number }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
+  lines: { name: string; qty: number; lineTotal: number; exempt?: boolean }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
+}
+/** Nota de crédito que anuló la boleta de una venta (bitácora: action 'dte.void', entidad Sale). */
+export interface CreditNoteRecord {
+  tipo: 61; folio: number; token: string; fecha: string; env: OfEnv; refFolio: number; refFecha: string; reason: string; total: number; neto: number; iva: number; exento: number;
+  lines: { name: string; qty: number; lineTotal: number; exempt?: boolean }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
 }
 export interface Deps {
   uow: UnitOfWork; integrations: IntegrationStore; catalog: CatalogReader; now?: () => Date;
@@ -44,6 +49,7 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
     }
   };
   const existing = async (saleId: string) => (await integrations.latestEntry('dte.issue', 'Sale', saleId)) as BoletaRecord | null;
+  const existingNc = async (saleId: string) => (await integrations.latestEntry('dte.void', 'Sale', saleId)) as CreditNoteRecord | null;
 
   return {
     async status(actor: Actor | null): Promise<{ configured: boolean; env: OfEnv | null; emisor: { rut: string; razonSocial: string } | null; canConfigure: boolean }> {
@@ -64,6 +70,34 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
     async forSale(actor: Actor | null, saleId: string): Promise<BoletaRecord | null> {
       assertCan(actor, 'dte.issue'); await canSee(actor, String(saleId)); return existing(String(saleId));
     },
+    async creditNoteFor(actor: Actor | null, saleId: string): Promise<CreditNoteRecord | null> {
+      assertCan(actor, 'dte.issue'); await canSee(actor, String(saleId)); return existingNc(String(saleId));
+    },
+    /**
+     * Anula ante el SII la boleta de una venta ANULADA, emitiendo una nota de crédito (61, CodRef 1) por el total.
+     * Solo ADMINISTRADOR (quien anula ventas). Una sola vez por venta.
+     */
+    async annulBoleta(actor: Actor | null, saleId: string, reason: string): Promise<CreditNoteRecord> {
+      assertCan(actor, 'sale.void'); saleId = String(saleId);
+      await canSee(actor, saleId);
+      const b = await existing(saleId); if (!b) throw businessRule('Esta venta no tiene boleta electrónica emitida desde el sistema.');
+      const prevNc = await existingNc(saleId); if (prevNc) throw businessRule(`La boleta N° ${b.folio} ya fue anulada con la nota de crédito N° ${prevNc.folio}.`);
+      const c = await config(); if (!c) throw businessRule('Falta conectar Haulmer (API Key).');
+      if (c.env !== b.env) throw businessRule('La boleta se emitió en otro ambiente de Haulmer (pruebas/producción); anúlala desde el Espacio de Trabajo.');
+      const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
+      if (got.sale.status !== 'VOIDED') throw businessRule('Primero anula la venta; la nota de crédito anula su boleta.');
+      const client = openFacturaClient(c.apiKey, c.env, call);
+      const org = await wrap(() => client.organization());               // datos frescos del emisor (incluye la actividad económica)
+      const fecha = businessDateOf(now(), (await catalog.businessSettings()).timezone);
+      const why = (reason ?? '').trim() || 'Anula boleta';
+      const lines = b.lines.map((l) => ({ ...l, exempt: !!l.exempt }));
+      let dte; try { dte = buildCreditNoteForBoleta(org, fecha, { folio: b.folio, fecha: b.fecha, lines, totals: { neto: b.neto, iva: b.iva, exento: b.exento, total: b.total } }, why); } catch (e) { throw businessRule((e as Error).message); }
+      const r = await wrap(() => client.emit(dte, `ER-NC-${c.env}-${saleId}`));
+      const rec: CreditNoteRecord = { tipo: 61, folio: r.folio, token: r.token, fecha, env: c.env, refFolio: b.folio, refFecha: b.fecha, reason: why, total: b.total, neto: b.neto, iva: b.iva, exento: b.exento,
+        lines, emisor: org, resolucion: r.resolucion ?? org.resolucion, timbre: r.timbre, warning: r.warning, saleFolio: b.saleFolio };
+      await uow.run((tx) => tx.audit.write({ action: 'dte.void', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec }));
+      return rec;
+    },
     /** Emite la boleta de una venta (una sola vez). Las ventas con tarjeta (TUU ya emite boleta) exigen confirmación. */
     async issueBoleta(actor: Actor | null, saleId: string, opts: { allowCard?: boolean } = {}): Promise<BoletaRecord> {
       assertCan(actor, 'dte.issue'); saleId = String(saleId);
@@ -80,7 +114,7 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
       let built; try { built = buildBoleta(c.org, fecha, lines, medioPagoFor(codes)); } catch (e) { throw businessRule((e as Error).message); }
       const r = await wrap(() => openFacturaClient(c.apiKey, c.env, call).emit(built.dte, `ER-${c.env}-${saleId}`));
       const rec: BoletaRecord = { tipo: 39, folio: r.folio, token: r.token, fecha, env: c.env, ...built.totals, medioPago: medioPagoFor(codes) ?? null,
-        lines: lines.filter((l) => l.lineTotal > 0 && l.qty > 0).map(({ name, qty, lineTotal }) => ({ name, qty, lineTotal })), emisor: c.org,
+        lines: lines.filter((l) => l.lineTotal > 0 && l.qty > 0).map(({ name, qty, lineTotal, exempt }) => ({ name, qty, lineTotal, exempt })), emisor: c.org,
         resolucion: r.resolucion ?? c.org.resolucion, timbre: r.timbre, warning: r.warning, saleFolio: got.sale.folio };
       await uow.run((tx) => tx.audit.write({ action: 'dte.issue', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec }));
       return rec;

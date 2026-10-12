@@ -24,8 +24,16 @@ export async function closeSaleAction(input: SaleInput): Promise<ActionResult> {
   catch (e) { const c = toClientError(e); return { ok: false, error: c.message, code: c.code }; }
 }
 
+/** Anula la venta y, si tenía boleta electrónica emitida desde el sistema, emite la nota de crédito que la anula.
+ *  Si Haulmer falla, la venta igual queda anulada y el detalle muestra el botón para reintentar la nota de crédito. */
 export async function voidSaleAction(saleId: string, reason: string): Promise<ActionResult> {
-  try { await services.sales.voidSale(await getActor(), saleId, reason, { ip: await ip() }); revalidatePath("/ventas"); revalidatePath(`/ventas/${saleId}`); return { ok: true }; }
+  try {
+    const actor = await getActor();
+    await services.sales.voidSale(actor, saleId, reason, { ip: await ip() });
+    try { if (await services.dte.forSale(actor, saleId) && !(await services.dte.creditNoteFor(actor, saleId))) await services.dte.annulBoleta(actor, saleId, `Anula boleta: ${reason}`); }
+    catch { /* se reintenta desde el detalle de la venta */ }
+    revalidatePath("/ventas"); revalidatePath(`/ventas/${saleId}`); return { ok: true };
+  }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
 }
 
