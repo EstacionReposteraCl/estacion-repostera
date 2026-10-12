@@ -22,6 +22,7 @@ const GROUPS: { title: string; items: Mod[] }[] = [
     { perm: "expense.write", title: "Gastos", text: "Arriendo, servicios, sueldos…", href: "/gastos", icon: "wallet" },
     { perm: "money.manage", title: "Dinero disponible", text: "Caja, banco, Mercado Pago, TUU, Rappi", href: "/dinero", icon: "coins" },
     { perm: "report.financial", title: "Reportes", text: "Ventas, costo y ganancia real", href: "/reportes", icon: "chart" },
+    { perm: "report.financial", title: "Simulador de precios", text: "Precios y descuentos por canal", href: "/precios", icon: "trend" },
   ] },
   { title: "Configuración", items: [
     { perm: "user.write", title: "Usuarios", text: "Accesos, roles y contraseñas", href: "/usuarios", icon: "users" },

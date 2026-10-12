@@ -414,3 +414,22 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
   .home-kpi-sun svg { color: var(--sun); }
 }
 @media (max-width: 640px) { .home-hero { padding: 18px; } .home-kpi-main { grid-column: 1 / -1; } }
+
+/* ===== Simulador de precios ===== */
+.sim { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+.sim-head { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.sim-ctrls { display: flex; flex-wrap: wrap; gap: 12px; }
+.sim-ctrls label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 600; color: var(--muted); max-width: 240px; }
+.sim-ctrls input { width: 120px; }
+.sim-suffix { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.sim-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: 0.8rem; cursor: pointer; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sim-table td { vertical-align: middle; }
+.sim-in { width: 78px; text-align: right; padding: 5px 6px; }
+.sim-sm { width: 52px; }
+.sim-fee { display: inline-flex; align-items: center; gap: 2px; margin-top: 3px; color: var(--muted); font-size: 0.75rem; }
+.sim-fee .sim-in { padding: 2px 4px; font-size: 0.75rem; }
+.sim-good { color: #15803d; } .sim-warn { color: #a16207; } .sim-bad { color: var(--danger); }
+@media (prefers-color-scheme: dark) { .sim-good { color: #4ade80; } .sim-warn { color: #facc15; } }
+.sim-table td:first-child { min-width: 170px; } .sim-table th, .sim-table td { padding-left: 6px; padding-right: 6px; }

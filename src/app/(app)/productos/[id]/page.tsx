@@ -20,6 +20,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
     <main className="page">
       <div className="pagehead">
         <h1>{p.name}</h1>
+        <Link className="btn btn-small" href={`/precios?id=${p.id}`}>Simular precios</Link>
         <Link className="btn btn-small" href="/productos">← Productos</Link>
       </div>
       {ok && OK[ok] && <p className="ok" role="status">{OK[ok]}</p>}
