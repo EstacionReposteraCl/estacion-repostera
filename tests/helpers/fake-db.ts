@@ -167,7 +167,7 @@ export class FakeDb implements State {
           self.sales.set(sale.id, { sale, items: recs, payments }); return { sale, items: recs };
         },
         async getWithItems(id) { const s = self.sales.get(id); return s ? { sale: { ...s.sale }, items: s.items, payments: s.payments } : null; },
-        async markVoided(id, reason) { const s = self.sales.get(id)!; s.sale = { ...s.sale, status: 'VOIDED', voidReason: reason }; },
+        async markVoided(id, reason) { const s = self.sales.get(id)!; s.sale = { ...s.sale, status: 'VOIDED', voidReason: reason, ...(s.sale.externalRef ? { externalRef: `${s.sale.externalRef} (anulada N° ${s.sale.folio})` } : {}) }; },
       },
       inventory: {
         async lockState(b, p) { const k = self.key(b, p); if (!self.inv.has(k)) self.inv.set(k, { qty: 0n, value: 0, seq: 0 }); return { ...self.inv.get(k)! }; },

@@ -155,6 +155,7 @@ test('configuración: datos del negocio, comisión de canal automática que se a
   await svc.inventory.openingBalance(admin, { productId: p.id, qty: '2', totalValue: 8000 });
   const s = await svc.sales.closeSale(admin, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.MERCADO_LIBRE, payments: [{ methodId: ids.CASH, amount: 10000 }], idempotencyKey: `ml-${run}`, externalRef: `ML-${run}` });
   assert.equal(s.issuer.legalName, `Estación Repostera ${run}`, 'el comprobante nuevo usa los datos nuevos');
+  assert.equal(await code(svc.sales.closeSale(admin, { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.MERCADO_LIBRE, payments: [{ methodId: ids.CASH, amount: 10000 }], idempotencyKey: `mldup-${run}`, externalRef: `ML-${run}` })), 'BUSINESS_RULE', 'mismo pedido en una venta vigente: bloqueado');
   const fin = await svc.sales.getSaleFinancial(admin, s.id);
   assert.deepEqual(fin.charges.map((c) => [c.type, c.amount]).sort(), [['CHANNEL_COMMISSION', 1300], ['CHANNEL_FIXED_FEE', 700]]);
   assert.equal(await db.auditLog.count({ where: { action: { in: ['settings.business', 'feerule.update'] } } }) >= 2, true);
@@ -164,6 +165,19 @@ test('configuración: datos del negocio, comisión de canal automática que se a
   assert.ok(!(await svc.sales.posOptions(seller)).channels.some((c) => c.id === ids.MERCADO_LIBRE));
   await svc.settings.updateEntry(admin, 'channel', ids.MERCADO_LIBRE, { name: 'Mercado Libre', isActive: true });
   assert.equal(await code(svc.settings.overview(seller)), 'FORBIDDEN');
+});
+
+test('venta anulada libera su N° de pedido: el mismo pedido se puede registrar de nuevo', async () => {
+  const p = await svc.products.save(admin, { sku: `RE-${run}`, name: `Reingreso ${run}`, unitCode: 'UN', kind: 'GOODS', salePrice: 5000, vatTreatment: 'AFECTO' });
+  await svc.inventory.openingBalance(admin, { productId: p.id, qty: '3', totalValue: 6000 });
+  const base = { lines: [{ productId: p.id, quantity: '1' }], channelId: ids.MERCADO_LIBRE, payments: [{ methodId: ids.CASH, amount: 5000 }], externalRef: `#RE-${run}` };
+  const a = await svc.sales.closeSale(admin, { ...base, idempotencyKey: `re1-${run}` });
+  assert.equal(await code(svc.sales.closeSale(admin, { ...base, idempotencyKey: `re2-${run}` })), 'BUSINESS_RULE');
+  await svc.sales.voidSale(admin, a.id, 'precio equivocado');
+  const old = await db.sale.findUnique({ where: { id: a.id } });
+  assert.equal(old!.externalRef, `#RE-${run} (anulada N° ${old!.folio})`);
+  const b = await svc.sales.closeSale(admin, { ...base, idempotencyKey: `re3-${run}` });
+  assert.equal((await db.sale.findUnique({ where: { id: b.id } }))!.externalRef, `#RE-${run}`);
 });
 
 test('compras (pantallas): proveedor con RUT único, listado con totales, detalle con costo unitario derivado; anulación ajustada con varianza', async () => {

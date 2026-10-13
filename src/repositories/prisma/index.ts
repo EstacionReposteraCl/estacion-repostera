@@ -322,7 +322,12 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
           if (!s) return null;
           return { sale: saleRecord(s), items: s.items.map(itemRecord), payments: s.payments.map((p) => ({ methodId: p.paymentMethodId, amount: p.amount })) };
         },
-        async markVoided(id, reason, userId) { await db.sale.update({ where: { id }, data: { status: 'VOIDED', voidReason: reason, voidedAt: new Date(), voidedById: userId } }); },
+        async markVoided(id, reason, userId) {
+          // El N° de pedido (Mercado Libre/Rappi) es único por canal: al anular se marca para que el mismo pedido pueda registrarse de nuevo bien.
+          const cur = await db.sale.findUnique({ where: { id }, select: { externalRef: true, folio: true } });
+          const ref = cur?.externalRef ? `${cur.externalRef} (anulada N° ${cur.folio})` : undefined;
+          await db.sale.update({ where: { id }, data: { status: 'VOIDED', voidReason: reason, voidedAt: new Date(), voidedById: userId, ...(ref ? { externalRef: ref } : {}) } });
+        },
       },
       inventory: {
         async lockState(branchId, productId) {
