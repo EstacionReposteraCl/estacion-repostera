@@ -458,3 +458,11 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 .sim-total small { grid-column: 2; text-align: right; font-weight: 700; }
 .sim-suggest { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding-top: 10px; border-top: 1px dashed var(--line); }
 @media (max-width: 760px) { .sim-body { grid-template-columns: 1fr; } .sim-channel { min-width: 0; width: 100%; } }
+
+/* Ventas web por revisar */
+.webpend-list { display: grid; gap: 12px; }
+.webpend { max-width: 900px; margin: 0; }
+.webpend-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.webpend-foot { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-top: 10px; }
+.webpend-foot label { display: flex; flex-direction: column; gap: 4px; }
+.webpend td { vertical-align: middle; }

@@ -5,7 +5,14 @@ import { jumpsellerClient, JumpsellerError, type HttpGet, type JsCredentials, ty
 import type { UnitOfWork, IntegrationStore } from '../repositories/ports.ts';
 
 const PURPOSE = 'integration:jumpseller';
-const defaultGet: HttpGet = async (url, headers) => {
+/** Credenciales de Jumpseller guardadas (descifradas) o null. Uso interno de servicios. */
+export async function jumpsellerCreds(integrations: IntegrationStore, secret: string): Promise<JsCredentials | null> {
+  const a = await integrations.latest('jumpseller'); if (!a) return null;
+  const login = typeof a.login === 'string' ? a.login : ''; const box = typeof a.tokenBox === 'string' ? a.tokenBox : '';
+  const token = box ? open(box, secret, PURPOSE) : null;
+  return login && token ? { login, token } : null;
+}
+export const defaultGet: HttpGet = async (url, headers) => {
   const r = await fetch(url, { headers, signal: AbortSignal.timeout(12_000), cache: 'no-store' });
   return { status: r.status, json: () => r.json() };
 };

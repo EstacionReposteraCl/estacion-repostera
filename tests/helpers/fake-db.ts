@@ -154,6 +154,11 @@ export class FakeDb implements State {
   integrations = {
     latest: async (name: string) => { const e = [...this.audit].reverse().find((x) => x.action === 'integration.set' && x.entity === name); return (e?.after as Record<string, unknown>) ?? null; },
     latestEntry: async (action: string, entity: string, entityId: string) => { const e = [...this.audit].reverse().find((x) => x.action === action && x.entity === entity && x.entityId === entityId); return (e?.after as Record<string, unknown>) ?? null; },
+    latestEntries: async (action: string, entity: string, limit: number) => {
+      const m = new Map<string, { entityId: string; at: Date; after: Record<string, unknown> }>();
+      this.audit.forEach((x, i) => { if (x.action === action && x.entity === entity && x.entityId) m.set(x.entityId, { entityId: x.entityId, at: new Date(i), after: (x.after as Record<string, unknown>) ?? {} }); });
+      return [...m.values()].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
+    },
   };
   get ports(): Ports { return { uow: this.uow, catalog: this.catalog, products: this.productReader, sales: this.salesReader, reports: this.reportReader, users: this.userStore, authAdmin: this.authAdmin, settings: this.settingsStore, purchases: this.purchaseReader, expenses: this.expenseReader, cash: this.cashOps, money: this.moneyOps, integrations: this.integrations, now: this.now }; }
 

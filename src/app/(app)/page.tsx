@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { after } from "next/server";
 import { requireActor } from "@/lib/session";
 import { can, type Permission, type Actor } from "@/core/permissions";
 import { services } from "@/server/container";
@@ -12,6 +13,7 @@ const GROUPS: { title: string; items: Mod[] }[] = [
     { perm: "sale.read.own_today", title: "Ventas", text: "Comprobantes, anulaciones y cargos", href: "/ventas", icon: "list" },
     { perm: "cash.close", title: "Cierre de caja", text: "Abrir, contar y cerrar el turno", href: "/caja/cierre", icon: "lock" },
     { perm: "shipping.labels", title: "Despacho", text: "Etiquetas de pedidos web", href: "/despacho", icon: "truck" },
+    { perm: "sale.read.any", title: "Ventas web", text: "Pedidos de la tienda que se registran solos", href: "/ventas-web", icon: "phone" },
   ] },
   { title: "Productos", items: [
     { perm: "product.read.public", title: "Productos", text: "Catálogo, precios y códigos", href: "/productos", icon: "box" },
@@ -42,10 +44,10 @@ type Alert = { text: string; href: string; tone?: "warn" };
 
 async function adminData(actor: Actor) {
   const date = await services.reports.today(actor);
-  const [list, fin, snap, cash, money, orders, voided, dte] = await Promise.all([
+  const [list, fin, snap, cash, money, orders, voided, dte, web] = await Promise.all([
     safe(services.sales.listAdmin(actor, {})), safe(services.reports.financial(actor, { from: date, to: date })), safe(services.reports.overview(actor, { from: date, to: date }).then((o) => o.inventory)),
     safe(services.cash.status(actor)), can(actor.role, "money.manage") ? safe(services.money.status(actor)) : null,
-    safe(services.shipping.recent(actor), 3500), safe(services.sales.listAdmin(actor, { from: daysAgo(date, 7), to: date, status: "VOIDED" })), safe(services.dte.status(actor)),
+    safe(services.shipping.recent(actor), 3500), safe(services.sales.listAdmin(actor, { from: daysAgo(date, 7), to: date, status: "VOIDED" })), safe(services.dte.status(actor)), safe(services.webOrders.status(actor)),
   ]);
   const by = { cash: 0, card: 0, other: 0 };
   for (const r of list?.rows ?? []) if (r.status === "COMPLETED") for (const p of r.payments) {
@@ -56,6 +58,7 @@ async function adminData(actor: Actor) {
   if (snap?.productsWithoutStock) alerts.push({ text: `${snap.productsWithoutStock} producto(s) sin stock`, href: "/inventario?stock=sin" });
   const paid = (orders ?? []).filter((o) => o.status === "Paid" && o.createdAt && Date.now() - new Date(o.createdAt).getTime() < 3 * 86400e3);
   if (paid.length) alerts.push({ text: `${paid.length} pedido(s) web pagado(s) en los últimos 3 días: revisa las etiquetas`, href: "/despacho" });
+  if (web?.pending.length) alerts.push({ text: `${web.pending.length} pedido(s) de la página web por revisar (no se registraron solos)`, href: "/ventas-web", tone: "warn" });
   const unassigned = money?.outflows.filter((o) => o.paidFrom === null).length ?? 0;
   if (unassigned) alerts.push({ text: `${unassigned} compra(s) o gasto(s) sin indicar con qué se pagaron`, href: "/dinero" });
   if (dte?.configured && voided?.rows.length) {
@@ -67,6 +70,7 @@ async function adminData(actor: Actor) {
 
 export default async function HomePage() {
   const { actor, name } = await requireActor();
+  after(() => services.webOrders.sync().then(() => undefined, () => undefined));   // registra pedidos web pagados sin demorar la página
   const now = new Date(); const admin = can(actor.role, "sale.read.any") && can(actor.role, "report.financial");
   const a = admin ? await adminData(actor) : null;
   const seller = admin ? null : await safe(services.reports.sellerToday(actor));

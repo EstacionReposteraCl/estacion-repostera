@@ -97,19 +97,20 @@ function cashOps(db: Db): CashOps {
   const toRecord = (r: { id: string; at: Date; userId: string; userName: string | null; after: Record<string, unknown> }): CashCloseRecord =>
     ({ ...(r.after as unknown as Omit<CashCloseRecord, 'id' | 'at' | 'userId' | 'userName'>), id: r.id, at: r.at, userId: r.userId, userName: r.userName ?? '—' });
   const ops: CashOps = {
+    // Las ventas de la página web (pagadas con TUU Pago Online, Mercado Pago…) no pasan por la caja ni por la máquina: no entran al cierre.
     async summary(branchId, date, since, methods) {
       const [s] = await db.$queryRaw<{ voided: bigint }[]>`
         SELECT count(*) FILTER (WHERE status = 'VOIDED') AS voided
-        FROM sales WHERE "branchId" = ${branchId} AND "businessDate" = ${date}::date AND (${since}::timestamptz IS NULL OR "soldAt" > ${since}::timestamptz)`;
+        FROM sales WHERE "branchId" = ${branchId} AND "businessDate" = ${date}::date AND "channelId" NOT IN (SELECT id FROM sale_channels WHERE code = 'PAGINA_WEB') AND (${since}::timestamptz IS NULL OR "soldAt" > ${since}::timestamptz)`;
       const [t] = await db.$queryRaw<{ n: bigint; total: bigint }[]>`
         SELECT count(DISTINCT s.id) AS n, COALESCE(sum(p.amount), 0)::bigint AS total
         FROM sales s JOIN sale_payments p ON p."saleId" = s.id JOIN payment_methods m ON m.id = p."paymentMethodId"
-        WHERE s."branchId" = ${branchId} AND s."businessDate" = ${date}::date AND s.status = 'COMPLETED' AND (${since}::timestamptz IS NULL OR s."soldAt" > ${since}::timestamptz)
+        WHERE s."branchId" = ${branchId} AND s."businessDate" = ${date}::date AND s.status = 'COMPLETED' AND s."channelId" NOT IN (SELECT id FROM sale_channels WHERE code = 'PAGINA_WEB') AND (${since}::timestamptz IS NULL OR s."soldAt" > ${since}::timestamptz)
           AND m.code = ANY(${methods}::text[])`;
       const pm = await db.$queryRaw<{ code: string; name: string; n: bigint; amount: bigint }[]>`
         SELECT m.code, m.name, count(DISTINCT s.id) AS n, COALESCE(sum(p.amount), 0)::bigint AS amount
         FROM sales s JOIN sale_payments p ON p."saleId" = s.id JOIN payment_methods m ON m.id = p."paymentMethodId"
-        WHERE s."branchId" = ${branchId} AND s."businessDate" = ${date}::date AND s.status = 'COMPLETED' AND (${since}::timestamptz IS NULL OR s."soldAt" > ${since}::timestamptz)
+        WHERE s."branchId" = ${branchId} AND s."businessDate" = ${date}::date AND s.status = 'COMPLETED' AND s."channelId" NOT IN (SELECT id FROM sale_channels WHERE code = 'PAGINA_WEB') AND (${since}::timestamptz IS NULL OR s."soldAt" > ${since}::timestamptz)
           AND m.code = ANY(${methods}::text[])
         GROUP BY m.code, m.name ORDER BY amount DESC`;
       const byMethod = pm.map((x) => ({ code: x.code, name: x.name, count: Number(x.n), amount: Number(x.amount) }));
@@ -667,6 +668,13 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     async latestEntry(action, entity, entityId) {
       const [r] = await client.$queryRaw<{ after: Record<string, unknown> | null }[]>`SELECT after FROM audit_logs WHERE action = ${action} AND entity = ${entity} AND "entityId" = ${entityId} ORDER BY "occurredAt" DESC, id DESC LIMIT 1`;
       return r?.after ?? null;
+    },
+    async latestEntries(action, entity, limit) {
+      const rows = await client.$queryRaw<{ entityId: string; at: Date; after: Record<string, unknown> | null }[]>`
+        SELECT * FROM (SELECT DISTINCT ON ("entityId") "entityId", "occurredAt" AS at, after FROM audit_logs
+          WHERE action = ${action} AND entity = ${entity} AND "entityId" IS NOT NULL ORDER BY "entityId", "occurredAt" DESC, id DESC) t
+        ORDER BY at DESC LIMIT ${limit}`;
+      return rows.map((r) => ({ entityId: r.entityId, at: r.at, after: r.after ?? {} }));
     },
   } };
 }

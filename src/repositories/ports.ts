@@ -225,6 +225,8 @@ export interface IntegrationStore {
   latest(name: string): Promise<Record<string, unknown> | null>;
   /** `after` del registro más reciente de la bitácora con esa acción, entidad e id (p. ej. la boleta emitida de una venta). */
   latestEntry(action: string, entity: string, entityId: string): Promise<Record<string, unknown> | null>;
+  /** El registro más reciente de cada entityId para esa acción y entidad (más nuevos primero). */
+  latestEntries(action: string, entity: string, limit: number): Promise<{ entityId: string; at: Date; after: Record<string, unknown> }[]>;
 }
 export interface Ports { uow: UnitOfWork; catalog: CatalogReader; products: ProductReader; sales: SalesReader; reports: ReportReader; users: UserStore; authAdmin: AuthAdmin; settings: SettingsStore; purchases: PurchaseReader; expenses: ExpenseReader; cash: CashOps; money: MoneyOps; integrations: IntegrationStore; now?: () => Date }
 

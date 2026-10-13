@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireActor } from "@/lib/session";
@@ -13,6 +14,7 @@ const ST: Record<string, string> = { Paid: "Pagado", "Pending Payment": "Pago pe
 export default async function ShippingPage({ searchParams }: { searchParams: Promise<{ pedido?: string; conectar?: string }> }) {
   const { actor } = await requireActor();
   if (!can(actor.role, "shipping.labels")) redirect("/");
+  after(() => services.webOrders.sync().then(() => undefined, () => undefined));
   const sp = await searchParams;
   if (sp.pedido && /^\d+$/.test(sp.pedido.trim())) redirect(`/despacho/${sp.pedido.trim()}`);
   const st = await services.shipping.status(actor);

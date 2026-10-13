@@ -346,3 +346,11 @@ test('integraciones en Postgres real: la configuración más reciente de Jumpsel
   assert.equal((await ports.integrations.latest('jumpseller'))?.login, `b-${run}`);
   assert.equal(await ports.integrations.latest(`otra-${run}`), null);
 });
+
+test('bitácora: latestEntries devuelve el registro más reciente de cada entidad', async () => {
+  const ports = createPrismaPorts(db); const ent = `JO-${run}`;
+  const w = (id: string, state: string) => ports.uow.run((tx) => tx.audit.write({ action: 'web.order', entity: ent, entityId: id, userId: admin.userId, after: { state } }));
+  await w('1', 'PENDING'); await new Promise((r) => setTimeout(r, 5)); await w('2', 'DONE'); await new Promise((r) => setTimeout(r, 5)); await w('1', 'DONE');
+  const l = await ports.integrations.latestEntries('web.order', ent, 10);
+  assert.deepEqual(l.map((e) => [e.entityId, e.after.state]), [['1', 'DONE'], ['2', 'DONE']]);
+});

@@ -55,6 +55,19 @@ export function jumpsellerClient(c: JsCredentials, get: HttpGet) {
   };
   return {
     async order(id: number): Promise<ShippingLabel> { return toLabel(await call(`/orders/${id}.json`)); },
+    /** Pedido tal como lo entrega la API (para registrar la venta). */
+    async orderRaw(id: number): Promise<unknown> { return call(`/orders/${id}.json`); },
+    /** Últimos pedidos sin transformar (misma estrategia de páginas que `recent`). */
+    async recentRaw(limit = 50): Promise<unknown[]> {
+      const cnt = num(obj(await call('/orders/count.json')).count) ?? 0; const per = 50; const pages = Math.max(1, Math.ceil(cnt / per));
+      const lists = await Promise.all([...new Set([1, pages])].map((p) => call('/orders.json', { limit: per, page: p })));
+      const all = lists.flatMap((l) => (Array.isArray(l) ? l : [])) as unknown[];
+      const id = (x: unknown) => num(obj(obj(x).order ?? x).id) ?? 0;
+      return [...new Map(all.map((x) => [id(x), x])).values()].filter((x) => id(x) > 0).sort((a, b) => id(b) - id(a)).slice(0, limit);
+    },
+    async hooks(): Promise<{ id: number; event: string; url: string }[]> {
+      const l = await call('/hooks.json'); return (Array.isArray(l) ? l : []).map((x) => { const h = obj(obj(x).hook ?? x); return { id: num(h.id) ?? 0, event: str(h.event), url: str(h.url) }; });
+    },
     /** Últimos pedidos: se pide el conteo y se leen la primera y la última página (no depende del orden que use la API). */
     async recent(limit = 30): Promise<OrderRow[]> {
       const cnt = num(obj(await call('/orders/count.json')).count) ?? 0; const per = 50; const pages = Math.max(1, Math.ceil(cnt / per));

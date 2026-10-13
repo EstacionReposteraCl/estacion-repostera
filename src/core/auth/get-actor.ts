@@ -13,3 +13,11 @@ export async function getActor(): Promise<Actor | null> {
   const branch = await prisma.branch.findFirstOrThrow({ where: { isMain: true, isActive: true } });
   return { userId: user.id, role: user.role, email: user.email, branchId: branch.id, banned: user.banned };
 }
+
+/** Actor de un usuario por id, SIN sesión: solo para procesos del servidor (p. ej. el aviso de Jumpseller). */
+export async function actorFor(userId: string): Promise<Actor | null> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || user.banned) return null;
+  const branch = await prisma.branch.findFirstOrThrow({ where: { isMain: true, isActive: true } });
+  return { userId: user.id, role: user.role, email: user.email, branchId: branch.id, banned: user.banned };
+}
