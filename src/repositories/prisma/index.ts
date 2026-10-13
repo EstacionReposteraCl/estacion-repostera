@@ -517,7 +517,7 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
       return { financial: { netTotal: f.netTotal, costOfGoodsSold: f.costOfGoodsSold, grossProfit: f.grossProfit, totalCharges: f.totalCharges, realProfit: f.realProfit }, charges: charges.map(chargeRecord) };
     },
     async listAdmin(branchId, f) {
-      const where: Prisma.SaleWhereInput = { branchId, businessDate: { gte: dateOnly(f.from), lte: dateOnly(f.to) }, ...(f.status ? { status: f.status } : {}), ...(f.sellerId ? { createdById: f.sellerId } : {}) };
+      const where: Prisma.SaleWhereInput = { branchId, businessDate: { gte: dateOnly(f.from), lte: dateOnly(f.to) }, ...(f.status ? { status: f.status } : {}), ...(f.sellerId ? { createdById: f.sellerId } : {}), ...(f.channelId ? { channelId: f.channelId } : {}) };
       const [rows, agg] = await Promise.all([
         client.sale.findMany({ where, orderBy: { soldAt: 'desc' }, take: f.limit, include: { channel: { select: { name: true } }, createdBy: { select: { name: true } }, payments: { include: { paymentMethod: { select: { name: true } } }, orderBy: { createdAt: 'asc' } } } }),
         client.sale.aggregate({ where: { ...where, status: 'COMPLETED' }, _count: { _all: true }, _sum: { total: true } }),
@@ -642,6 +642,12 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
         include: expInclude, orderBy: [{ expenseDate: 'desc' }, { createdAt: 'desc' }], take: f.limit })).map(expRecord);
     },
     async get(id) { const e = await client.expense.findUnique({ where: { id }, include: expInclude }); return e ? expRecord(e) : null; },
+    async paidFromOf(ids) {
+      const out = new Map<string, string>(); if (ids.length === 0) return out;
+      const rows = await client.auditLog.findMany({ where: { action: { in: ['expense.create', 'money.source'] }, entityId: { in: ids } }, orderBy: { occurredAt: 'asc' }, select: { action: true, entityId: true, after: true } });
+      for (const r of rows) { const v = (r.after as { paidFrom?: unknown } | null)?.paidFrom; if (r.entityId && typeof v === 'string' && (r.action === 'money.source' || !out.has(r.entityId))) out.set(r.entityId, v); }
+      return out;
+    },
     async categories(all) { return client.expenseCategory.findMany({ where: all ? {} : { isActive: true }, orderBy: { name: 'asc' }, select: { id: true, name: true, isActive: true } }); },
     async totalsByCategory(branchId, range) {
       const rows = await client.$queryRaw<{ category: string; count: bigint; total: bigint; cost: bigint }[]>`

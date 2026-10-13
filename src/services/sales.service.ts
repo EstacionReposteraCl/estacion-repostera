@@ -42,11 +42,11 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
     },
 
     /** Listado del ADMINISTRADOR (todas las ventas del rango, incluidas anuladas). Sin costos. */
-    async listAdmin(actor: Actor | null, f: { from?: string; to?: string; status?: 'COMPLETED' | 'VOIDED' }): Promise<{ from: string; to: string; rows: SaleListRow[]; totals: { count: number; total: number } }> {
+    async listAdmin(actor: Actor | null, f: { from?: string; to?: string; status?: 'COMPLETED' | 'VOIDED'; channelId?: string }): Promise<{ from: string; to: string; rows: SaleListRow[]; totals: { count: number; total: number } }> {
       assertCan(actor, 'sale.read.any');
       const d = await today(); const from = f.from || d; const to = f.to || from;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw validation('Rango de fechas inválido.');
-      const r = await sales.listAdmin(actor.branchId, { from, to, status: f.status, limit: 500 });
+      const r = await sales.listAdmin(actor.branchId, { from, to, status: f.status, channelId: f.channelId ? String(f.channelId) : undefined, limit: 500 });
       return { from, to, ...r };
     },
 

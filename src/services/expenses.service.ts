@@ -13,10 +13,15 @@ export function createExpensesService({ uow, expenses, catalog, now = () => new 
   const today = async () => businessDateOf(now(), (await catalog.businessSettings()).timezone);
   const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
   return {
-    async list(actor: Actor | null, f: { from: string; to: string; categoryId?: string; status?: 'CONFIRMED' | 'VOIDED' }): Promise<ExpenseRecord[]> {
+    /** paidFrom: CAJA / BANCO / MP / NONE, o 'SIN' = sin indicar. */
+    async list(actor: Actor | null, f: { from: string; to: string; categoryId?: string; status?: 'CONFIRMED' | 'VOIDED'; paidFrom?: string }): Promise<ExpenseRecord[]> {
       assertCan(actor, 'expense.read');
       if (!isDate(f.from) || !isDate(f.to) || f.from > f.to) throw validation('Rango de fechas inválido.');
-      return expenses.list(actor.branchId, { ...f, limit: 500 });
+      const rows = await expenses.list(actor.branchId, { from: f.from, to: f.to, categoryId: f.categoryId, status: f.status, limit: 500 });
+      const pf = await expenses.paidFromOf(rows.map((r) => r.id));
+      const withPf = rows.map((r) => ({ ...r, paidFrom: pf.get(r.id) ?? null }));
+      if (!f.paidFrom) return withPf;
+      return withPf.filter((r) => (f.paidFrom === 'SIN' ? r.paidFrom === null : r.paidFrom === f.paidFrom));
     },
     async get(actor: Actor | null, id: string): Promise<ExpenseRecord> { assertCan(actor, 'expense.read'); const e = await expenses.get(id); if (!e) throw notFound('Gasto'); return e; },
     async categories(actor: Actor | null, includeInactive = false): Promise<ExpenseCategoryRow[]> { assertCan(actor, 'expense.read'); return expenses.categories(includeInactive); },

@@ -4,17 +4,18 @@ import { can } from "@/core/permissions";
 import { services } from "@/server/container";
 import { ExpenseForm, VoidExpense, ExpenseCategories } from "@/components/expenses-ui";
 import { peso } from "@/lib/format";
+import { PAID_FROM, PAID_FROM_LABEL } from "@/domain/money/money";
 
 const DOC: Record<string, string> = { FACTURA: "Factura", BOLETA: "Boleta", OTRO: "Otro" };
 const dmy = (s: string) => s.split("-").reverse().join("-");
 
-export default async function ExpensesPage({ searchParams }: { searchParams: Promise<{ desde?: string; hasta?: string; cat?: string; estado?: string }> }) {
+export default async function ExpensesPage({ searchParams }: { searchParams: Promise<{ desde?: string; hasta?: string; cat?: string; estado?: string; pago?: string }> }) {
   const { actor } = await requireActor();
   if (!can(actor.role, "expense.write")) redirect("/");
   const sp = await searchParams; const today = await services.expenses.today(actor);
   const from = sp.desde || today.slice(0, 8) + "01"; const to = sp.hasta || today;
   const [rows, cats, allCats, sups] = await Promise.all([
-    services.expenses.list(actor, { from, to, categoryId: sp.cat || undefined, status: sp.estado === "anulados" ? "VOIDED" : sp.estado === "todos" ? undefined : "CONFIRMED" }),
+    services.expenses.list(actor, { from, to, categoryId: sp.cat || undefined, status: sp.estado === "anulados" ? "VOIDED" : sp.estado === "todos" ? undefined : "CONFIRMED", paidFrom: sp.pago || undefined }),
     services.expenses.categories(actor), services.expenses.categories(actor, true), services.purchases.suppliers(actor),
   ]);
   const valid = rows.filter((r) => r.status === "CONFIRMED");
@@ -33,6 +34,7 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
         <label className="inline small">Desde <input type="date" name="desde" defaultValue={from} max={today} /></label>
         <label className="inline small">Hasta <input type="date" name="hasta" defaultValue={to} max={today} /></label>
         <select name="cat" defaultValue={sp.cat ?? ""} aria-label="Categoría"><option value="">Todas las categorías</option>{allCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <select name="pago" defaultValue={sp.pago ?? ""} aria-label="Pagado con"><option value="">Pagado con: todos</option>{PAID_FROM.map((k) => <option key={k} value={k}>{PAID_FROM_LABEL[k]}</option>)}<option value="SIN">Sin indicar</option></select>
         <select name="estado" defaultValue={sp.estado ?? ""} aria-label="Estado"><option value="">Vigentes</option><option value="anulados">Anulados</option><option value="todos">Todos</option></select>
         <button className="btn" type="submit">Ver</button>
       </form>
@@ -43,13 +45,14 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       </div>
       {rows.length === 0 ? <p className="muted">No hay gastos en ese período.</p> : (
         <div className="tablewrap"><table className="list">
-          <thead><tr><th>Fecha</th><th>Descripción</th><th className="hide-sm">Categoría</th><th className="hide-sm">Documento</th><th className="num">Total</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Descripción</th><th className="hide-sm">Categoría</th><th className="hide-sm">Documento</th><th>Pagado con</th><th className="num">Total</th><th></th></tr></thead>
           <tbody>{rows.map((r) => (
             <tr key={r.id} style={r.status === "VOIDED" ? { opacity: 0.6 } : undefined}>
               <td>{dmy(r.expenseDate)}</td>
               <td>{r.description}{r.supplier && <div className="muted small">{r.supplier}</div>}{r.status === "VOIDED" && <div className="small out">Anulado: {r.voidReason}</div>}</td>
               <td className="hide-sm">{r.category}</td>
               <td className="hide-sm">{r.docType ? `${DOC[r.docType]}${r.docNumber ? " N° " + r.docNumber : ""}` : <span className="muted">—</span>}</td>
+              <td className="small">{r.paidFrom && r.paidFrom in PAID_FROM_LABEL ? PAID_FROM_LABEL[r.paidFrom as keyof typeof PAID_FROM_LABEL] : <span className="muted">sin indicar</span>}</td>
               <td className="num">{r.status === "VOIDED" ? <s>{peso(r.totalAmount)}</s> : peso(r.totalAmount)}{r.vatRecoverable && r.status !== "VOIDED" && <div className="muted small">neto {peso(r.netAmount)}</div>}</td>
               <td>{r.status === "CONFIRMED" && <VoidExpense id={r.id} label={r.description} />}</td>
             </tr>))}</tbody>

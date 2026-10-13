@@ -70,7 +70,7 @@ export class FakeDb implements State {
   salesReader: SalesReader = {
     list: async (scope, _b, limit) => [...this.sales.values()].map((s) => s.sale).filter((s) => (!scope.createdById || s.createdById === scope.createdById) && (!scope.businessDate || s.businessDate === scope.businessDate)).slice(0, limit),
     financialOf: async (id) => { const f = this.fin.get(id); return f ? { financial: { ...f }, charges: this.charges.filter((c) => c.saleId === id) } : null; },
-    listAdmin: async (_b, f) => { const rows = [...this.sales.values()].filter(({ sale }) => sale.businessDate >= f.from && sale.businessDate <= f.to && (!f.status || sale.status === f.status) && (!f.sellerId || sale.createdById === f.sellerId))
+    listAdmin: async (_b, f) => { const rows = [...this.sales.values()].filter(({ sale }) => sale.businessDate >= f.from && sale.businessDate <= f.to && (!f.status || sale.status === f.status) && (!f.sellerId || sale.createdById === f.sellerId) && (!f.channelId || sale.channelId === f.channelId))
       .map(({ sale, payments }) => ({ id: sale.id, folio: sale.folio, soldAt: sale.soldAt, businessDate: sale.businessDate, total: sale.total, status: sale.status, channel: sale.channelId, seller: sale.createdById, payments: payments.map((p) => ({ method: p.methodId, amount: p.amount })), externalRef: sale.externalRef ?? null })).slice(0, f.limit);
       const ok = rows.filter((r) => r.status === 'COMPLETED'); return { rows, totals: { count: ok.length, total: ok.reduce((a, r) => a + r.total, 0) } }; },
     meta: async (id) => { const s = this.sales.get(id); return s ? { channel: s.sale.channelId, seller: s.sale.createdById, payments: s.payments.map((p) => ({ method: p.methodId, amount: p.amount })), externalRef: s.sale.externalRef ?? null, note: s.sale.note ?? null, voidReason: s.sale.voidReason ?? null, voidedAt: null, voidedBy: null } : null; },
@@ -107,6 +107,7 @@ export class FakeDb implements State {
   expensesMap = new Map<string, ExpenseRecord>(); expenseCats = new Map<string, { id: string; name: string; isActive: boolean }>([['cat-arriendo', { id: 'cat-arriendo', name: 'Arriendo', isActive: true }]]);
   expenseReader: ExpenseReader = {
     list: async (_b, f) => [...this.expensesMap.values()].filter((e) => e.expenseDate >= f.from && e.expenseDate <= f.to && (!f.categoryId || e.categoryId === f.categoryId) && (!f.status || e.status === f.status)).slice(0, f.limit),
+    paidFromOf: async (ids) => { const out = new Map<string, string>(); for (const e of this.audit) { const v = (e.after as { paidFrom?: unknown } | null)?.paidFrom; if (e.entityId && ids.includes(e.entityId) && typeof v === 'string' && (e.action === 'money.source' || (e.action === 'expense.create' && !out.has(e.entityId)))) out.set(e.entityId, v); } return out; },
     get: async (id) => this.expensesMap.get(id) ?? null,
     categories: async (all) => [...this.expenseCats.values()].filter((c) => all || c.isActive),
     totalsByCategory: async (_b, r) => { const m = new Map<string, { category: string; count: number; total: number; resultCost: number }>();

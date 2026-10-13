@@ -94,3 +94,17 @@ test('gastos: una misma factura puede registrarse en partes (otra categoría) so
   await svc.expenses.create(admin, { categoryId: c2.id, description: 'Rollos de papel', expenseDate: '2026-10-11', totalAmount: 2490, docType: 'FACTURA', docNumber: '15663671', paidFrom: 'MP', sameDocumentPart: true });
   const a = db.audit.filter((e) => e.action === 'expense.create').at(-1)!; assert.equal((a.after as { sameDocumentPart?: boolean }).sameDocumentPart, true);
 });
+
+test('gastos: filtro por "pagado con" (incluye la corrección más reciente y los sin indicar)', async () => {
+  const { db, svc } = world(); db.clock = new Date('2026-10-12T15:00:00-03:00'); const cat = (await svc.expenses.categories(admin))[0];
+  const a = await svc.expenses.create(admin, { categoryId: cat.id, description: 'Bolsas', expenseDate: '2026-10-10', totalAmount: 5000, paidFrom: 'MP' });
+  await svc.expenses.create(admin, { categoryId: cat.id, description: 'Luz', expenseDate: '2026-10-10', totalAmount: 20000, paidFrom: 'BANCO' });
+  const all = await svc.expenses.list(admin, { from: '2026-10-01', to: '2026-10-31' });
+  assert.equal(all.find((r) => r.id === a.id)!.paidFrom, 'MP');
+  assert.deepEqual((await svc.expenses.list(admin, { from: '2026-10-01', to: '2026-10-31', paidFrom: 'MP' })).map((r) => r.description), ['Bolsas']);
+  await svc.money.setStart(admin, { balances: { CAJA: 0 } });
+  await svc.money.setSource(admin, 'EXPENSE', a.id, 'CAJA');
+  assert.equal((await svc.expenses.list(admin, { from: '2026-10-01', to: '2026-10-31', paidFrom: 'MP' })).length, 0);
+  assert.deepEqual((await svc.expenses.list(admin, { from: '2026-10-01', to: '2026-10-31', paidFrom: 'CAJA' })).map((r) => r.description), ['Bolsas']);
+  assert.equal((await svc.expenses.list(admin, { from: '2026-10-01', to: '2026-10-31', paidFrom: 'SIN' })).length, 0);
+});

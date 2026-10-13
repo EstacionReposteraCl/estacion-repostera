@@ -147,7 +147,7 @@ export interface SalesReader {
   /** Datos de presentación de una venta (canal, vendedor, pagos). No incluye costos. */
   meta(saleId: string): Promise<SaleMeta | null>;
 }
-export interface SaleListFilter { from: string; to: string; status?: 'COMPLETED' | 'VOIDED'; sellerId?: string; limit: number }
+export interface SaleListFilter { from: string; to: string; status?: 'COMPLETED' | 'VOIDED'; sellerId?: string; channelId?: string; limit: number }
 export interface SaleListRow { id: string; folio: number; soldAt: Date; businessDate: string; total: Peso; status: 'COMPLETED' | 'VOIDED'; channel: string; seller: string; payments: { method: string; amount: Peso }[]; externalRef: string | null }
 export interface SaleMeta { channel: string; seller: string; payments: { method: string; amount: Peso }[]; externalRef: string | null; note: string | null; voidReason: string | null; voidedAt: Date | null; voidedBy: string | null }
 export interface ReportReader {
@@ -263,10 +263,14 @@ export interface ExpenseRecord {
   id: string; branchId: string; categoryId: string; category: string; supplierId: string | null; supplier: string | null; description: string;
   docType: 'FACTURA' | 'BOLETA' | 'OTRO' | null; docNumber: string | null; expenseDate: string; status: 'CONFIRMED' | 'VOIDED'; vatRecoverable: boolean;
   netAmount: Peso; vatAmount: Peso; totalAmount: Peso; createdBy: string; createdAt: Date; voidReason: string | null; voidedBy: string | null;
+  /** Con qué se pagó (CAJA/BANCO/MP/NONE; corrección más reciente en Dinero). null = sin indicar. */
+  paidFrom?: string | null;
 }
 export interface ExpenseCategoryRow { id: string; name: string; isActive: boolean }
 export interface ExpenseReader {
   list(branchId: string, f: { from: string; to: string; categoryId?: string; status?: 'CONFIRMED' | 'VOIDED'; limit: number }): Promise<ExpenseRecord[]>;
+  /** Con qué se pagó cada gasto: lo indicado al registrarlo o la corrección más reciente (money.source). */
+  paidFromOf(ids: string[]): Promise<Map<string, string>>;
   get(id: string): Promise<ExpenseRecord | null>;
   categories(includeInactive: boolean): Promise<ExpenseCategoryRow[]>;
   /** Totales del período por categoría (solo CONFIRMED). resultCost = neto si el IVA es recuperable, si no el total. */

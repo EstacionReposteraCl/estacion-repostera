@@ -7,7 +7,7 @@ import { peso } from "@/lib/format";
 const hm = (d: Date) => d.toLocaleTimeString("es-CL", { timeZone: "America/Santiago", hour: "2-digit", minute: "2-digit" });
 const dmy = (s: string) => s.split("-").reverse().join("-");
 
-export default async function SalesPage({ searchParams }: { searchParams: Promise<{ desde?: string; hasta?: string; estado?: string }> }) {
+export default async function SalesPage({ searchParams }: { searchParams: Promise<{ desde?: string; hasta?: string; estado?: string; canal?: string }> }) {
   const { actor } = await requireActor();
   const sp = await searchParams;
   if (!can(actor.role, "sale.read.any")) {
@@ -28,7 +28,7 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
     );
   }
   const status = sp.estado === "anuladas" ? "VOIDED" : sp.estado === "validas" ? "COMPLETED" : undefined;
-  const r = await services.sales.listAdmin(actor, { from: sp.desde, to: sp.hasta, status });
+  const [r, opts] = await Promise.all([services.sales.listAdmin(actor, { from: sp.desde, to: sp.hasta, status, channelId: sp.canal || undefined }), services.sales.posOptions(actor)]);
   const byMethod = new Map<string, number>();
   for (const s of r.rows) if (s.status === "COMPLETED") for (const p of s.payments) byMethod.set(p.method, (byMethod.get(p.method) ?? 0) + p.amount);
   return (
@@ -37,6 +37,7 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
       <form className="filters">
         <label className="inline small">Desde <input type="date" name="desde" defaultValue={r.from} /></label>
         <label className="inline small">Hasta <input type="date" name="hasta" defaultValue={r.to} /></label>
+        <select name="canal" defaultValue={sp.canal ?? ""} aria-label="Canal"><option value="">Todos los canales</option>{opts.channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <select name="estado" defaultValue={sp.estado ?? ""} aria-label="Estado"><option value="">Todas</option><option value="validas">Válidas</option><option value="anuladas">Anuladas</option></select>
         <button className="btn" type="submit">Ver</button>
       </form>
