@@ -73,6 +73,70 @@ export function buildCreditNoteForBoleta(org: OfOrg, fecha: string, b: { folio: 
   };
 }
 
+/** Datos del cliente (receptor) de una factura. */
+export interface Receptor { rut: string; razonSocial: string; giro: string; direccion: string; comuna: string; email?: string | null }
+/** Línea en montos NETOS tal como va en la factura (para imprimirla igual). */
+export interface NetLine { name: string; qty: number; price: number; amount: number; exempt: boolean }
+export interface FacturaTotals { neto: number; iva: number; exento: number; total: number }
+
+/** Neto e IVA de un monto bruto afecto, buscando el neto cuyo IVA (19% redondeado) sume exactamente el bruto. */
+export function splitGross(gross: number): { neto: number; iva: number } {
+  if (gross <= 0) return { neto: 0, iva: 0 };
+  const n0 = Math.round(gross / 1.19);
+  let best = { neto: n0, iva: Math.round(n0 * 0.19) };
+  for (const d of [0, -1, 1, -2, 2]) {
+    const n = n0 + d; const iva = Math.round(n * 0.19); if (n + iva === gross) return { neto: n, iva };
+    const off = Math.abs(n + iva - gross), cur = Math.abs(best.neto + best.iva - gross);
+    if (off < cur || (off === cur && n + iva < best.neto + best.iva)) best = { neto: n, iva };
+  }
+  return best;     // algunos montos no tienen neto exacto (el IVA redondeado salta ese valor): el documento difiere en $1
+}
+
+/** Detalle en netos (factura): reparte el neto total entre las líneas afectas; las exentas van por su monto. */
+export function netLinesFor(lines: BoletaLine[]): { lines: NetLine[]; totals: FacturaTotals } {
+  const ls = lines.filter((l) => l.lineTotal > 0 && l.qty > 0);
+  if (ls.length === 0) throw new Error('La venta no tiene líneas con monto para la factura.');
+  const afecto = ls.filter((l) => !l.exempt).reduce((a, l) => a + l.lineTotal, 0); const exento = ls.filter((l) => l.exempt).reduce((a, l) => a + l.lineTotal, 0);
+  const { neto, iva } = splitGross(afecto);
+  const out: NetLine[] = ls.map((l) => ({ name: l.name, qty: Math.round(l.qty * 1e6) / 1e6, exempt: l.exempt, amount: l.exempt ? l.lineTotal : Math.round(l.lineTotal / 1.19), price: 0 }));
+  const diff = neto - out.filter((l) => !l.exempt).reduce((a, l) => a + l.amount, 0);
+  if (diff !== 0) { const big = out.filter((l) => !l.exempt).sort((a, b) => b.amount - a.amount)[0]; if (big) big.amount += diff; }
+  for (const l of out) l.price = l.qty === 1 ? l.amount : Math.round((l.amount / l.qty) * 1e6) / 1e6;
+  return { lines: out, totals: { neto, iva, exento, total: neto + iva + exento } };
+}
+
+const emisorFull = (org: OfOrg) => {
+  if (!org.acteco) throw new Error('Falta la actividad económica (Acteco) del emisor en Haulmer.');
+  const e: Record<string, unknown> = { RUTEmisor: org.rut, RznSoc: cut(org.razonSocial, 100), GiroEmis: cut(org.giro, 80), Acteco: org.acteco, DirOrigen: cut(org.direccion, 70), CmnaOrigen: cut(org.comuna, 20) };
+  if (org.cdgSIISucur) e.CdgSIISucur = org.cdgSIISucur;
+  return e;
+};
+const receptorOf = (r: Receptor) => ({ RUTRecep: r.rut.replace(/\./g, ''), RznSocRecep: cut(r.razonSocial, 100), GiroRecep: cut(r.giro, 40), DirRecep: cut(r.direccion, 70), CmnaRecep: cut(r.comuna, 20), ...(r.email ? { CorreoRecep: cut(r.email, 80) } : {}) });
+const detalleOf = (ls: NetLine[]) => ls.map((l, i) => ({ NroLinDet: i + 1, NmbItem: cut(l.name.replace(/[\u2013\u2014]/g, '-'), 80), QtyItem: l.qty, PrcItem: l.price, MontoItem: l.amount, ...(l.exempt ? { IndExe: 1 } : {}) }));
+const totalesOf = (t: FacturaTotals) => (t.neto > 0 ? { MntNeto: t.neto, ...(t.exento ? { MntExe: t.exento } : {}), TasaIVA: '19', IVA: t.iva, MntTotal: t.total } : { MntExe: t.exento, MntTotal: t.total });
+
+/** Factura electrónica: 33 (afecta) o 34 (exenta, si todas las líneas son exentas). Detalle en NETOS. fmaPago: 1 contado, 2 crédito. */
+export function buildFactura(org: OfOrg, fecha: string, receptor: Receptor, lines: BoletaLine[], fmaPago: 1 | 2): { tipo: 33 | 34; dte: Record<string, unknown>; lines: NetLine[]; totals: FacturaTotals } {
+  const { lines: nl, totals } = netLinesFor(lines); const tipo = totals.neto > 0 ? 33 : 34;
+  return { tipo, lines: nl, totals, dte: { Encabezado: { IdDoc: { TipoDTE: tipo, Folio: 0, FchEmis: fecha, TpoTranVenta: 1, FmaPago: fmaPago }, Emisor: emisorFull(org), Receptor: receptorOf(receptor), Totales: totalesOf(totals) }, Detalle: detalleOf(nl) } };
+}
+
+/** Nota de crédito (61) que ANULA una factura (CodRef 1): mismo detalle neto, mismo receptor, referencia a la 33/34. */
+export function buildCreditNoteForFactura(org: OfOrg, fecha: string, f: { tipo: 33 | 34; folio: number; fecha: string; receptor: Receptor; netLines: NetLine[]; totals: FacturaTotals }, razon: string): Record<string, unknown> {
+  return {
+    Encabezado: { IdDoc: { TipoDTE: 61, Folio: 0, FchEmis: fecha }, Emisor: emisorFull(org), Receptor: receptorOf(f.receptor), Totales: totalesOf(f.totals) },
+    Detalle: detalleOf(f.netLines),
+    Referencia: [{ NroLinRef: 1, TpoDocRef: String(f.tipo), FolioRef: f.folio, FchRef: f.fecha, CodRef: 1, RazonRef: cut(razon || 'Anula factura', 90) }],
+  };
+}
+
+/** Ficha de un contribuyente en el SII (vía Haulmer). null si el RUT no existe. */
+export function toTaxpayer(raw: unknown): Receptor | null {
+  const r = o(raw); if (!s(r.razonSocial)) return null;
+  const acts = Array.isArray(r.actividades) ? r.actividades.map(o) : []; const main = acts.find((a) => a.actividadPrincipal) ?? acts[0] ?? {};
+  return { rut: s(r.rut), razonSocial: s(r.razonSocial), giro: s(main.giro) || s(r.glosaDescriptiva), direccion: s(r.direccion), comuna: s(r.comuna), email: s(r.email) || null };
+}
+
 export class OpenFacturaError extends Error { readonly status: number; readonly code: string; constructor(message: string, status: number, code = '') { super(message); this.status = status; this.code = code; } }
 
 function errorFrom(status: number, body: string): OpenFacturaError {
@@ -94,10 +158,11 @@ export function openFacturaClient(apiKey: string, env: OfEnv, call: HttpCall) {
   }
   return {
     async organization(): Promise<OfOrg> { return toOrg(await req('GET', '/organization')); },
+    async taxpayer(rut: string): Promise<Receptor | null> { return toTaxpayer(await req('GET', `/taxpayer/${encodeURIComponent(rut.replace(/\./g, ''))}`)); },
     async emit(dte: Record<string, unknown>, idempotencyKey: string): Promise<EmitResult> {
       const r = o(await req('POST', '/document', { response: ['FOLIO', 'TIMBRE', 'RESOLUCION'], dte }, { 'Idempotency-Key': idempotencyKey }));
       const folio = Number(r.FOLIO); const token = s(r.TOKEN);
-      if (!Number.isFinite(folio) || folio <= 0 || !token) throw new OpenFacturaError('Haulmer no devolvió el folio de la boleta.', 200);
+      if (!Number.isFinite(folio) || folio <= 0 || !token) throw new OpenFacturaError('Haulmer no devolvió el folio del documento.', 200);
       const res = o(r.RESOLUCION);
       return { folio, token, timbre: s(r.TIMBRE) || null, resolucion: r.RESOLUCION ? { fecha: s(res.fecha), numero: Number(s(res.numero)) || 0 } : null, warning: s(r.WARNING) || null };
     },

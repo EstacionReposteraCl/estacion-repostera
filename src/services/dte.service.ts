@@ -2,7 +2,8 @@ import { assertCan, can, type Actor } from '../core/permissions/permissions.ts';
 import { validation, businessRule, notFound } from '../core/errors/index.ts';
 import { seal, open } from '../core/crypto/secret-box.ts';
 import { businessDateOf } from '../core/time/business-date.ts';
-import { openFacturaClient, buildBoleta, buildCreditNoteForBoleta, medioPagoFor, OpenFacturaError, type HttpCall, type OfEnv, type OfOrg } from '../integrations/openfactura.ts';
+import { openFacturaClient, buildBoleta, buildCreditNoteForBoleta, buildFactura, buildCreditNoteForFactura, medioPagoFor, OpenFacturaError, type HttpCall, type OfEnv, type OfOrg, type Receptor, type NetLine } from '../integrations/openfactura.ts';
+import { normalizeRut } from './settings.service.ts';
 import type { UnitOfWork, IntegrationStore, CatalogReader } from '../repositories/ports.ts';
 
 const PURPOSE = 'integration:openfactura';
@@ -18,12 +19,21 @@ export interface BoletaRecord {
   tipo: 39; folio: number; token: string; fecha: string; env: OfEnv; total: number; neto: number; iva: number; exento: number; medioPago: number | null;
   lines: { name: string; qty: number; lineTotal: number; exempt?: boolean }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
 }
+/** Factura emitida (33 afecta / 34 exenta). Mismo registro 'dte.issue' que la boleta: una venta tiene UN documento. */
+export interface FacturaRecord {
+  tipo: 33 | 34; folio: number; token: string; fecha: string; env: OfEnv; total: number; neto: number; iva: number; exento: number; fmaPago: 1 | 2; receptor: Receptor;
+  netLines: NetLine[]; lines: { name: string; qty: number; lineTotal: number; exempt?: boolean }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
+}
+export type DteRecord = BoletaRecord | FacturaRecord;
+export const docName = (tipo: number) => (tipo === 39 ? 'boleta' : tipo === 34 ? 'factura exenta' : 'factura');
 /** Nota de crédito que anuló la boleta de una venta (bitácora: action 'dte.void', entidad Sale). */
 export interface CreditNoteRecord {
   tipo: 61; folio: number; token: string; fecha: string; env: OfEnv; refFolio: number; refFecha: string; reason: string; total: number; neto: number; iva: number; exento: number;
   lines: { name: string; qty: number; lineTotal: number; exempt?: boolean }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
   /** true = anulada a mano en el Espacio de Trabajo de Haulmer (el sistema solo lo registra; no hay timbre para imprimir). */
   manual?: boolean;
+  /** Documento anulado (39 boleta por defecto; 33/34 factura) y, si es factura, su receptor y detalle neto. */
+  refTipo?: 39 | 33 | 34; receptor?: Receptor; netLines?: NetLine[];
 }
 export interface Deps {
   uow: UnitOfWork; integrations: IntegrationStore; catalog: CatalogReader; now?: () => Date;
@@ -50,7 +60,7 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
       throw e;
     }
   };
-  const existing = async (saleId: string) => (await integrations.latestEntry('dte.issue', 'Sale', saleId)) as BoletaRecord | null;
+  const existing = async (saleId: string) => (await integrations.latestEntry('dte.issue', 'Sale', saleId)) as DteRecord | null;
   const existingNc = async (saleId: string) => (await integrations.latestEntry('dte.void', 'Sale', saleId)) as CreditNoteRecord | null;
 
   return {
@@ -69,7 +79,7 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
       await uow.run((tx) => tx.audit.write({ action: 'integration.set', entity: 'openfactura', entityId: 'openfactura', userId: actor.userId, after: { env, keyBox: seal(apiKey, secret(), PURPOSE), org } }));
       return org;
     },
-    async forSale(actor: Actor | null, saleId: string): Promise<BoletaRecord | null> {
+    async forSale(actor: Actor | null, saleId: string): Promise<DteRecord | null> {
       assertCan(actor, 'dte.issue'); await canSee(actor, String(saleId)); return existing(String(saleId));
     },
     async creditNoteFor(actor: Actor | null, saleId: string): Promise<CreditNoteRecord | null> {
@@ -83,35 +93,40 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
     async markAnnulledManually(actor: Actor | null, saleId: string, ncFolio: number | null): Promise<CreditNoteRecord> {
       assertCan(actor, 'sale.void'); saleId = String(saleId);
       await canSee(actor, saleId);
-      const b = await existing(saleId); if (!b) throw businessRule('Esta venta no tiene boleta electrónica emitida desde el sistema.');
-      const prevNc = await existingNc(saleId); if (prevNc) throw businessRule(`La boleta N° ${b.folio} ya figura anulada${prevNc.folio ? ` con la nota de crédito N° ${prevNc.folio}` : ''}.`);
+      const b = await existing(saleId); if (!b) throw businessRule('Esta venta no tiene boleta ni factura electrónica emitida desde el sistema.');
+      const prevNc = await existingNc(saleId); if (prevNc) throw businessRule(`La ${docName(b.tipo)} N° ${b.folio} ya figura anulada${prevNc.folio ? ` con la nota de crédito N° ${prevNc.folio}` : ''}.`);
       if (ncFolio !== null && (!Number.isSafeInteger(ncFolio) || ncFolio <= 0)) throw validation('N° de nota de crédito inválido.');
       const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
       if (got.sale.status !== 'VOIDED') throw businessRule('Primero anula la venta.');
       const fecha = businessDateOf(now(), (await catalog.businessSettings()).timezone);
       const rec: CreditNoteRecord = { tipo: 61, folio: ncFolio ?? 0, token: '', fecha, env: b.env, refFolio: b.folio, refFecha: b.fecha, reason: 'Anulada manualmente en Haulmer', total: b.total, neto: b.neto, iva: b.iva, exento: b.exento,
-        lines: b.lines, emisor: b.emisor, resolucion: b.resolucion, timbre: null, warning: null, saleFolio: b.saleFolio, manual: true };
+        lines: b.lines, emisor: b.emisor, resolucion: b.resolucion, timbre: null, warning: null, saleFolio: b.saleFolio, manual: true, refTipo: b.tipo };
       await uow.run((tx) => tx.audit.write({ action: 'dte.void', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec }));
       return rec;
     },
     async annulBoleta(actor: Actor | null, saleId: string, reason: string): Promise<CreditNoteRecord> {
       assertCan(actor, 'sale.void'); saleId = String(saleId);
       await canSee(actor, saleId);
-      const b = await existing(saleId); if (!b) throw businessRule('Esta venta no tiene boleta electrónica emitida desde el sistema.');
-      const prevNc = await existingNc(saleId); if (prevNc) throw businessRule(`La boleta N° ${b.folio} ya fue anulada con la nota de crédito N° ${prevNc.folio}.`);
+      const b = await existing(saleId); if (!b) throw businessRule('Esta venta no tiene boleta ni factura electrónica emitida desde el sistema.');
+      const prevNc = await existingNc(saleId); if (prevNc) throw businessRule(`La ${docName(b.tipo)} N° ${b.folio} ya fue anulada con la nota de crédito N° ${prevNc.folio}.`);
       const c = await config(); if (!c) throw businessRule('Falta conectar Haulmer (API Key).');
-      if (c.env !== b.env) throw businessRule('La boleta se emitió en otro ambiente de Haulmer (pruebas/producción); anúlala desde el Espacio de Trabajo.');
+      if (c.env !== b.env) throw businessRule(`La ${docName(b.tipo)} se emitió en otro ambiente de Haulmer (pruebas/producción); anúlala desde el Espacio de Trabajo.`);
       const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
       if (got.sale.status !== 'VOIDED') throw businessRule('Primero anula la venta; la nota de crédito anula su boleta.');
       const client = openFacturaClient(c.apiKey, c.env, call);
       const org = await wrap(() => client.organization());               // datos frescos del emisor (incluye la actividad económica)
       const fecha = businessDateOf(now(), (await catalog.businessSettings()).timezone);
-      const why = (reason ?? '').trim() || 'Anula boleta';
+      const why = (reason ?? '').trim() || `Anula ${docName(b.tipo)}`;
       const lines = b.lines.map((l) => ({ ...l, exempt: !!l.exempt }));
-      let dte; try { dte = buildCreditNoteForBoleta(org, fecha, { folio: b.folio, fecha: b.fecha, lines, totals: { neto: b.neto, iva: b.iva, exento: b.exento, total: b.total } }, why); } catch (e) { throw businessRule((e as Error).message); }
+      let dte; try {
+        dte = b.tipo === 39
+          ? buildCreditNoteForBoleta(org, fecha, { folio: b.folio, fecha: b.fecha, lines, totals: { neto: b.neto, iva: b.iva, exento: b.exento, total: b.total } }, why)
+          : buildCreditNoteForFactura(org, fecha, { tipo: b.tipo, folio: b.folio, fecha: b.fecha, receptor: b.receptor, netLines: b.netLines, totals: { neto: b.neto, iva: b.iva, exento: b.exento, total: b.total } }, why);
+      } catch (e) { throw businessRule((e as Error).message); }
       const r = await wrap(() => client.emit(dte, `ER-NC-${c.env}-${saleId}`));
       const rec: CreditNoteRecord = { tipo: 61, folio: r.folio, token: r.token, fecha, env: c.env, refFolio: b.folio, refFecha: b.fecha, reason: why, total: b.total, neto: b.neto, iva: b.iva, exento: b.exento,
-        lines, emisor: org, resolucion: r.resolucion ?? org.resolucion, timbre: r.timbre, warning: r.warning, saleFolio: b.saleFolio };
+        lines, emisor: org, resolucion: r.resolucion ?? org.resolucion, timbre: r.timbre, warning: r.warning, saleFolio: b.saleFolio,
+        refTipo: b.tipo, ...(b.tipo !== 39 ? { receptor: b.receptor, netLines: b.netLines } : {}) };
       await uow.run((tx) => tx.audit.write({ action: 'dte.void', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec }));
       return rec;
     },
@@ -119,7 +134,7 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
     async issueBoleta(actor: Actor | null, saleId: string, opts: { allowCard?: boolean } = {}): Promise<BoletaRecord> {
       assertCan(actor, 'dte.issue'); saleId = String(saleId);
       await canSee(actor, saleId);
-      const prev = await existing(saleId); if (prev) throw businessRule(`Esta venta ya tiene la boleta N° ${prev.folio}.`);
+      const prev = await existing(saleId); if (prev) throw businessRule(`Esta venta ya tiene la ${docName(prev.tipo)} N° ${prev.folio}.`);
       const c = await config(); if (!c) throw businessRule('Falta conectar Haulmer (API Key) para emitir boletas.');
       const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
       if (got.sale.status !== 'COMPLETED') throw businessRule('No se puede emitir boleta de una venta anulada.');
@@ -134,6 +149,47 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
         lines: lines.filter((l) => l.lineTotal > 0 && l.qty > 0).map(({ name, qty, lineTotal, exempt }) => ({ name, qty, lineTotal, exempt })), emisor: c.org,
         resolucion: r.resolucion ?? c.org.resolucion, timbre: r.timbre, warning: r.warning, saleFolio: got.sale.folio };
       await uow.run((tx) => tx.audit.write({ action: 'dte.issue', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec }));
+      return rec;
+    },
+
+    /** Datos de un cliente por RUT: primero los guardados en el sistema; si no, la ficha del SII vía Haulmer. */
+    async customer(actor: Actor | null, rawRut: string): Promise<{ receptor: Receptor; source: 'saved' | 'sii' } | null> {
+      assertCan(actor, 'dte.issue');
+      const rut = normalizeRut(String(rawRut ?? ''));
+      const saved = (await integrations.latestEntry('customer.save', 'Customer', rut)) as Receptor | null;
+      if (saved?.razonSocial) return { receptor: { ...saved, rut }, source: 'saved' };
+      const c = await config(); if (!c) throw businessRule('Falta conectar Haulmer (API Key).');
+      const t = await wrap(() => openFacturaClient(c.apiKey, c.env, call).taxpayer(rut));
+      return t ? { receptor: { ...t, rut }, source: 'sii' } : null;
+    },
+
+    /** Emite la FACTURA de una venta (en vez de boleta; una sola vez). fmaPago 1 contado, 2 crédito. */
+    async issueFactura(actor: Actor | null, saleId: string, i: { receptor: Receptor; fmaPago: number; allowCard?: boolean }): Promise<FacturaRecord> {
+      assertCan(actor, 'dte.issue'); saleId = String(saleId);
+      await canSee(actor, saleId);
+      const prev = await existing(saleId); if (prev) throw businessRule(`Esta venta ya tiene la ${docName(prev.tipo)} N° ${prev.folio}.`);
+      const t = (v: unknown, min: number, max: number, label: string) => { const x = String(v ?? '').trim().replace(/\s+/g, ' '); if (x.length < min) throw validation(`Falta ${label} del cliente.`); return x.slice(0, max); };
+      const receptor: Receptor = { rut: normalizeRut(String(i.receptor?.rut ?? '')), razonSocial: t(i.receptor?.razonSocial, 2, 100, 'la razón social'), giro: t(i.receptor?.giro, 2, 80, 'el giro'),
+        direccion: t(i.receptor?.direccion, 3, 70, 'la dirección'), comuna: t(i.receptor?.comuna, 2, 40, 'la comuna'), email: String(i.receptor?.email ?? '').trim().slice(0, 80) || null };
+      if (receptor.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(receptor.email)) throw validation('Correo del cliente inválido.');
+      const fmaPago: 1 | 2 = Number(i.fmaPago) === 2 ? 2 : 1;
+      const c = await config(); if (!c) throw businessRule('Falta conectar Haulmer (API Key) para emitir facturas.');
+      const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
+      if (got.sale.status !== 'COMPLETED') throw businessRule('No se puede emitir factura de una venta anulada.');
+      const methods = new Map((await catalog.listPaymentMethods()).map((m) => [m.id, m.code]));
+      if (got.payments.some((p) => CARD.includes(methods.get(p.methodId) ?? '')) && !i.allowCard) throw businessRule('Esta venta se pagó con tarjeta en la máquina TUU, que ya emitió una boleta. Confirma solo si vas a anular esa boleta en Haulmer.');
+      const client = openFacturaClient(c.apiKey, c.env, call);
+      const org = await wrap(() => client.organization());
+      const fecha = businessDateOf(now(), (await catalog.businessSettings()).timezone);
+      const lines = got.items.map((it) => ({ name: it.nameSnapshot, qty: milliToNumber(it.enteredQuantity), lineTotal: it.lineTotal, exempt: it.vatTreatment === 'EXENTO' }));
+      let built; try { built = buildFactura(org, fecha, receptor, lines, fmaPago); } catch (e) { throw businessRule((e as Error).message); }
+      const r = await wrap(() => client.emit(built.dte, `ER-F-${c.env}-${saleId}`));
+      const rec: FacturaRecord = { tipo: built.tipo, folio: r.folio, token: r.token, fecha, env: c.env, ...built.totals, fmaPago, receptor, netLines: built.lines,
+        lines: lines.filter((l) => l.lineTotal > 0 && l.qty > 0), emisor: org, resolucion: r.resolucion ?? org.resolucion, timbre: r.timbre, warning: r.warning, saleFolio: got.sale.folio };
+      await uow.run(async (tx) => {
+        await tx.audit.write({ action: 'dte.issue', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec as unknown as Record<string, unknown> });
+        await tx.audit.write({ action: 'customer.save', entity: 'Customer', entityId: receptor.rut, userId: actor.userId, after: receptor as unknown as Record<string, unknown> });
+      });
       return rec;
     },
   };

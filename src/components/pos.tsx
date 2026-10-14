@@ -31,6 +31,7 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
   const [received, setReceived] = useState("");
   // Solo administrador: fecha de la venta (para pasar comprobantes atrasados de TUU). Se mantiene entre ventas.
   const [saleDate, setSaleDate] = useState(today); const [tuuRef, setTuuRef] = useState("");
+  const [doc, setDoc] = useState<"boleta" | "factura">("boleta");          // factura: al cobrar se abre el formulario de factura de la venta
   const backdated = isAdmin && saleDate && saleDate !== today;
   const [error, setError] = useState<string | null>(null); const [pending, start] = useTransition();
   const searchRef = useRef<HTMLInputElement>(null); const seq = useRef(0);
@@ -103,7 +104,7 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
     start(async () => {
       try {
         const r = await closeSaleAction({ ...input, idempotencyKey });
-        if (r.ok) { reset(); setTuuRef(""); router.push(`/ventas/${r.id}?nueva=1`); return; }
+        if (r.ok) { const f = doc === "factura"; reset(); setTuuRef(""); setDoc("boleta"); router.push(`/ventas/${r.id}?nueva=1${f ? "&factura=1" : ""}`); return; }
         if (r.code === "CONFLICT") attempt.current = null;
         setError(r.error);
       } catch { setError("No hubo respuesta del servidor. Revisa la conexión y presiona Cobrar de nuevo: la venta no se duplicará."); }
@@ -188,6 +189,11 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
             {Number.isFinite(change) && <p className={change < 0 ? "out" : ""} style={{ margin: "6px 0 0" }}>{change < 0 ? `Faltan ${clp(-change)}` : <>Vuelto: <strong>{clp(change)}</strong></>}</p>}
           </div>
         )}
+        <div className="doc-toggle" role="radiogroup" aria-label="Documento">
+          <button type="button" role="radio" aria-checked={doc === "boleta"} className={doc === "boleta" ? "on" : ""} onClick={() => setDoc("boleta")}>Boleta</button>
+          <button type="button" role="radio" aria-checked={doc === "factura"} className={doc === "factura" ? "on" : ""} onClick={() => setDoc("factura")}>Factura</button>
+        </div>
+        {doc === "factura" && <p className="muted small" style={{ margin: "4px 0 0" }}>Al cobrar te pedirá el RUT del cliente para emitir la factura.</p>}
         <button className="btn btn-primary pos-charge" type="button" onClick={charge} disabled={pending || lines.length === 0 || invalidLine || !paysOk}>
           {pending ? "Cobrando…" : backdated ? `Registrar venta del ${saleDate.split("-").reverse().slice(0, 2).join("-")} · ${clp(total)}` : `Cobrar ${clp(total)}`}
         </button>

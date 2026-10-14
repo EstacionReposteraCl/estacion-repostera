@@ -30,7 +30,7 @@ export async function voidSaleAction(saleId: string, reason: string): Promise<Ac
   try {
     const actor = await getActor();
     await services.sales.voidSale(actor, saleId, reason, { ip: await ip() });
-    try { if (await services.dte.forSale(actor, saleId) && !(await services.dte.creditNoteFor(actor, saleId))) await services.dte.annulBoleta(actor, saleId, `Anula boleta: ${reason}`); }
+    try { if (await services.dte.forSale(actor, saleId) && !(await services.dte.creditNoteFor(actor, saleId))) await services.dte.annulBoleta(actor, saleId, `Venta anulada: ${reason}`); }
     catch { /* se reintenta desde el detalle de la venta */ }
     revalidatePath("/ventas"); revalidatePath(`/ventas/${saleId}`); return { ok: true };
   }

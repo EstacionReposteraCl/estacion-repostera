@@ -10,9 +10,9 @@ import { peso, qty } from "@/lib/format";
 
 const dt = (iso: string) => new Date(iso).toLocaleString("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" });
 
-export default async function SalePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ nueva?: string }> }) {
+export default async function SalePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ nueva?: string; factura?: string }> }) {
   const { actor } = await requireActor();
-  const { id } = await params; const { nueva } = await searchParams;
+  const { id } = await params; const { nueva, factura } = await searchParams;
   let sale, meta;
   try { [sale, meta] = await Promise.all([services.sales.getSaleForActor(actor, id), services.sales.metaForActor(actor, id)]); }
   catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
@@ -49,7 +49,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
         <footer>{footer && <>{footer}<br /></>}Documento interno, no válido como boleta.<br />¡Gracias por tu compra!</footer>
       </article>
       <ReceiptActions saleId={sale.id} fresh={Boolean(nueva)} />
-      {dte && <DteSalePanel saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} ncFolio={nc ? nc.folio : null} ncManual={!!nc?.manual} canVoid={can(actor.role, "sale.void")} voided={sale.status === "VOIDED"}
+      {dte && <DteSalePanel saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} ncFolio={nc ? nc.folio : null} ncManual={!!nc?.manual} tipo={boleta?.tipo ?? null} openFactura={factura === "1"} canVoid={can(actor.role, "sale.void")} voided={sale.status === "VOIDED"}
         card={meta.payments.some((p) => /d[ée]bito|cr[ée]dito|tuu/i.test(p.method))} />}
       {fin && <SaleAdminPanel saleId={sale.id} status={sale.status} fin={fin.financial} charges={fin.charges} />}
     </main>

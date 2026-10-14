@@ -16,7 +16,7 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
   let n;
   try { n = await services.dte.creditNoteFor(actor, id); } catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
   if (!n || n.manual) notFound();
-  const e = n.emisor;
+  const e = n.emisor; const refName = n.refTipo === 33 ? "Factura Electrónica" : n.refTipo === 34 ? "Factura Exenta Electrónica" : "Boleta Electrónica";
   return (
     <main className="page">
       {n.env === "dev" && <p className="error noprint" role="alert">Documento de PRUEBA (ambiente de pruebas de Haulmer): no es válido ante el SII.</p>}
@@ -33,9 +33,16 @@ export default async function CreditNotePage({ params }: { params: Promise<{ id:
           <div>{e.giro}</div>
           <div>{e.direccion}, {e.comuna}</div>
         </div>
-        <div className="bo-meta">Fecha emisión: {dmy(n.fecha)}<br />Referencia: anula Boleta Electrónica N° {n.refFolio} del {dmy(n.refFecha)}<br />Motivo: {n.reason}</div>
-        <table><tbody>{n.lines.map((l, i) => (
-          <tr key={i}><td>{l.name}<div className="rc-sub">{qtyFmt(l.qty)} x {peso(Math.round(l.lineTotal / (l.qty || 1)))}</div></td><td className="num">{peso(l.lineTotal)}</td></tr>))}</tbody></table>
+        <div className="bo-meta">Fecha emisión: {dmy(n.fecha)}
+          {n.receptor && <><br /><b>Señor(es): {n.receptor.razonSocial}</b><br />R.U.T.: {rutFmt(n.receptor.rut.replace(/\./g, ""))}<br />Giro: {n.receptor.giro}<br />Dirección: {n.receptor.direccion}, {n.receptor.comuna}</>}
+          <br />Referencia: anula {refName} N° {n.refFolio} del {dmy(n.refFecha)}<br />Motivo: {n.reason}</div>
+        {n.netLines ? (
+          <table><tbody>{n.netLines.map((l, i) => (
+            <tr key={i}><td>{l.name}<div className="rc-sub">{qtyFmt(l.qty)} x {peso(Math.round(l.price))}</div></td><td className="num">{peso(l.amount)}</td></tr>))}</tbody></table>
+        ) : (
+          <table><tbody>{n.lines.map((l, i) => (
+            <tr key={i}><td>{l.name}<div className="rc-sub">{qtyFmt(l.qty)} x {peso(Math.round(l.lineTotal / (l.qty || 1)))}</div></td><td className="num">{peso(l.lineTotal)}</td></tr>))}</tbody></table>
+        )}
         <dl>
           <div><dt>Monto neto</dt><dd>{peso(n.neto)}</dd></div>
           {n.exento > 0 && <div><dt>Monto exento</dt><dd>{peso(n.exento)}</dd></div>}

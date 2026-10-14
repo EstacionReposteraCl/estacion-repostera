@@ -28,7 +28,7 @@ const GROUPS: { title: string; items: Mod[] }[] = [
   ] },
   { title: "Configuración", items: [
     { perm: "user.write", title: "Usuarios", text: "Accesos, roles y contraseñas", href: "/usuarios", icon: "users" },
-    { perm: "settings.write", title: "Boleta electrónica", text: "Conexión con Haulmer", href: "/boletas", icon: "file" },
+    { perm: "settings.write", title: "Boletas y facturas", text: "Conexión con Haulmer", href: "/boletas", icon: "file" },
     { perm: "settings.write", title: "Configuración", text: "Comprobante, comisiones y medios de pago", href: "/configuracion", icon: "sliders" },
   ] },
 ];
@@ -63,7 +63,7 @@ async function adminData(actor: Actor) {
   if (unassigned) alerts.push({ text: `${unassigned} compra(s) o gasto(s) sin indicar con qué se pagaron`, href: "/dinero" });
   if (dte?.configured && voided?.rows.length) {
     const pend = (await Promise.all(voided.rows.slice(0, 20).map(async (r) => ((await safe(services.dte.forSale(actor, r.id))) && !(await safe(services.dte.creditNoteFor(actor, r.id))) ? r : null)))).filter(Boolean);
-    for (const r of pend) alerts.push({ text: `Venta N° ${r!.folio} anulada: su boleta electrónica sigue vigente en Haulmer`, href: `/ventas/${r!.id}`, tone: "warn" });
+    for (const r of pend) alerts.push({ text: `Venta N° ${r!.folio} anulada: su boleta o factura electrónica sigue vigente en Haulmer`, href: `/ventas/${r!.id}`, tone: "warn" });
   }
   return { total: list?.totals.total ?? 0, count: list?.totals.count ?? 0, by, profit: fin?.realProfit ?? null, cash, alerts };
 }

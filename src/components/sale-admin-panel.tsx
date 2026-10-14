@@ -45,7 +45,7 @@ export function SaleAdminPanel({ saleId, status, fin, charges }: { saleId: strin
           <p className="muted small" style={{ marginTop: 0 }}>Devuelve los productos al stock con su costo original. La venta queda registrada como anulada (no se borra).</p>
           <div className="inline">
             <input className="note" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Motivo (obligatorio)" aria-label="Motivo de anulación" />
-            <button className="btn btn-small" disabled={pending || !voidReason.trim()} onClick={() => { if (confirm("¿Anular esta venta? Esta acción no se puede deshacer. Si tiene boleta electrónica emitida desde el sistema, también se anula con una nota de crédito.")) run(() => voidSaleAction(saleId, voidReason)); }}>Anular venta</button>
+            <button className="btn btn-small" disabled={pending || !voidReason.trim()} onClick={() => { if (confirm("¿Anular esta venta? Esta acción no se puede deshacer. Si tiene boleta o factura electrónica emitida desde el sistema, también se anula con una nota de crédito.")) run(() => voidSaleAction(saleId, voidReason)); }}>Anular venta</button>
           </div>
         </div>
       </>)}
