@@ -14,12 +14,13 @@ const HINT: Record<Account, string> = {
   MP: "Disponible + por liberar.",
   TUU: "Ventas con tarjeta que TUU todavía no abona (abona ~5 a 7 días después).",
   RAPPI: "Ventas de Rappi que aún no depositan.",
+  UBER: "Ventas de Uber que aún no depositan.",
 };
 
 /** Tabla por cuenta: lo que debería haber, y (opcional) lo que hay realmente para ver la diferencia. */
 export function MoneyTable({ lines, unassigned, total }: { lines: AccountLine[]; unassigned: number; total: number }) {
   const router = useRouter(); const [pending, start] = useTransition();
-  const [real, setReal] = useState<Record<Account, string>>({ CAJA: "", BANCO: "", MP: "", TUU: "", RAPPI: "" });
+  const [real, setReal] = useState<Record<Account, string>>({ CAJA: "", BANCO: "", MP: "", TUU: "", RAPPI: "", UBER: "" });
   const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
   const vals = Object.fromEntries(ACCOUNTS.map((a) => [a, pesos(real[a])])) as Record<Account, number | null>;
   const filled = ACCOUNTS.filter((a) => vals[a] !== null);
@@ -31,7 +32,7 @@ export function MoneyTable({ lines, unassigned, total }: { lines: AccountLine[];
     setMsg({});
     start(async () => {
       const r = await setMoneyStartAction({ balances: vals as Record<string, number>, note: "Ajuste con saldos reales" });
-      if (r.ok) { setMsg({ ok: "Nuevo punto de partida guardado." }); setReal({ CAJA: "", BANCO: "", MP: "", TUU: "", RAPPI: "" }); router.refresh(); } else setMsg({ err: r.error });
+      if (r.ok) { setMsg({ ok: "Nuevo punto de partida guardado." }); setReal({ CAJA: "", BANCO: "", MP: "", TUU: "", RAPPI: "", UBER: "" }); router.refresh(); } else setMsg({ err: r.error });
     });
   }
   return (
@@ -69,7 +70,7 @@ export function MoneyTable({ lines, unassigned, total }: { lines: AccountLine[];
 /** Primer punto de partida (o uno nuevo): saldos reales contados ahora. */
 export function MoneyStartForm() {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
-  const [v, setV] = useState<Record<Account, string>>({ CAJA: "", BANCO: "", MP: "", TUU: "", RAPPI: "" }); const [note, setNote] = useState("");
+  const [v, setV] = useState<Record<Account, string>>({ CAJA: "", BANCO: "", MP: "", TUU: "", RAPPI: "", UBER: "" }); const [note, setNote] = useState("");
   const vals = Object.fromEntries(ACCOUNTS.map((a) => [a, pesos(v[a]) ?? 0])) as Record<Account, number>;
   const ok = ACCOUNTS.every((a) => Number.isFinite(vals[a]));
   function submit() {
@@ -95,6 +96,7 @@ const ENDS: { v: string; l: string }[] = [...ACCOUNTS.map((a) => ({ v: a, l: ACC
 const PRESETS: { l: string; from: string; to: string }[] = [
   { l: "TUU abonó al banco", from: "TUU", to: "BANCO" },
   { l: "Rappi depositó", from: "RAPPI", to: "BANCO" },
+  { l: "Uber depositó", from: "UBER", to: "BANCO" },
   { l: "Retiré de Mercado Pago al banco", from: "MP", to: "BANCO" },
   { l: "Deposité efectivo en el banco", from: "CAJA", to: "BANCO" },
   { l: "Retiro personal (de la caja)", from: "CAJA", to: "EXTERNO" },

@@ -20,7 +20,7 @@ export default async function MoneyPage() {
     return (
       <main className="page">
         <div className="pagehead"><h1>Dinero disponible</h1></div>
-        <p className="muted" style={{ maxWidth: 760 }}>Muestra cuánto dinero deberías tener y dónde: caja, banco, Mercado Pago, y lo que TUU y Rappi aún te deben. Para empezar, cuenta lo que tienes hoy.</p>
+        <p className="muted" style={{ maxWidth: 760 }}>Muestra cuánto dinero deberías tener y dónde: caja, banco, Mercado Pago, y lo que TUU, Rappi y Uber aún te deben. Para empezar, cuenta lo que tienes hoy.</p>
         <MoneyStartForm />
       </main>
     );
@@ -34,14 +34,14 @@ export default async function MoneyPage() {
       <div className="kpis">
         <div className="tile tile-hero"><p>Deberías tener en total</p><h3>{peso(r.total)}</h3><p className="small">disponible + por cobrar</p></div>
         <div className="tile"><p>Disponible ya</p><h3>{peso(r.available)}</h3><p className="small">caja + banco + Mercado Pago</p></div>
-        <div className="tile"><p>Por cobrar</p><h3>{peso(r.receivable)}</h3><p className="small">TUU + Rappi</p></div>
+        <div className="tile"><p>Por cobrar</p><h3>{peso(r.receivable)}</h3><p className="small">TUU + Rappi + Uber</p></div>
         {r.unassigned > 0 && <div className="tile"><p>Sin indicar con qué se pagó</p><h3>{peso(-r.unassigned)}</h3><p className="small">{unassigned.length} compra(s)/gasto(s) · ver abajo</p></div>}
       </div>
 
       <MoneyTable lines={r.lines} unassigned={r.unassigned} total={r.total} />
 
       <h2 className="sect">Traspasos, retiros y aportes</h2>
-      <p className="muted small" style={{ maxWidth: 900 }}>Cuando TUU te abone (llega ~5 a 7 días después de la venta) registra <b>“TUU abonó al banco”</b> por el <b>total abonado</b>; igual con Rappi, o si pasas plata de Mercado Pago al banco. Los retiros para uso personal también van aquí.</p>
+      <p className="muted small" style={{ maxWidth: 900 }}>Cuando TUU te abone (llega ~5 a 7 días después de la venta) registra <b>“TUU abonó al banco”</b> por el <b>total abonado</b>; igual con Rappi y Uber, o si pasas plata de Mercado Pago al banco. Los retiros para uso personal también van aquí.</p>
       <MoneyMoveForm today={st.today} />
       {st.moves.length > 0 && (
         <div className="tablewrap" style={{ maxWidth: 1000 }}><table className="list">
@@ -72,8 +72,8 @@ export default async function MoneyPage() {
       <details style={{ marginTop: 24, maxWidth: 900 }}>
         <summary>¿Cómo se calcula?</summary>
         <ul className="small">
-          <li>Cada cuenta parte del saldo que contaste. Se suman las ventas registradas después de ese momento según el medio de pago: efectivo → caja; débito/crédito → TUU por cobrar; transferencia → banco; Mercado Pago → Mercado Pago; Rappi → Rappi por cobrar.</li>
-          <li>Se restan las comisiones de cada venta en la cuenta que las descuenta (Mercado Libre en Mercado Pago, Rappi en Rappi, TUU con IVA incluido).</li>
+          <li>Cada cuenta parte del saldo que contaste. Se suman las ventas registradas después de ese momento según el medio de pago: efectivo → caja; débito/crédito → TUU por cobrar; transferencia → banco; Mercado Pago → Mercado Pago; Rappi → Rappi por cobrar; Uber → Uber por cobrar.</li>
+          <li>Se restan las comisiones de cada venta en la cuenta que las descuenta (Mercado Libre en Mercado Pago, Rappi en Rappi, Uber en Uber, TUU con IVA incluido).</li>
           <li>Se restan las compras y gastos según “Pagado con”, y se aplican los traspasos, retiros y aportes.</li>
           <li>Si los montos reales no cuadran por algo que no se registró, puedes fijar un nuevo punto de partida con lo que tienes.</li>
         </ul>

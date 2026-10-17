@@ -25,7 +25,7 @@ export function toOrg(raw: unknown): OfOrg {
 export function medioPagoFor(codes: string[]): number | undefined {
   const main = codes[0]; if (!main) return undefined;
   if (main === 'CASH') return 1; if (main === 'TRANSFER') return 3;
-  if (['DEBIT', 'CREDIT', 'MERCADO_PAGO', 'RAPPI', 'HISTORICO_TUU'].includes(main)) return 2;
+  if (['DEBIT', 'CREDIT', 'MERCADO_PAGO', 'RAPPI', 'UBER', 'HISTORICO_TUU'].includes(main)) return 2;
   return 5;
 }
 

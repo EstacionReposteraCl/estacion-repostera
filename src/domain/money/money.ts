@@ -12,11 +12,11 @@
  * Cuando TUU o Rappi depositan, se registra un traspaso TUU → Banco / Rappi → Banco.
  * Funciones puras: sin base de datos.
  */
-export const ACCOUNTS = ['CAJA', 'BANCO', 'MP', 'TUU', 'RAPPI'] as const;
+export const ACCOUNTS = ['CAJA', 'BANCO', 'MP', 'TUU', 'RAPPI', 'UBER'] as const;
 export type Account = (typeof ACCOUNTS)[number];
 export const AVAILABLE: readonly Account[] = ['CAJA', 'BANCO', 'MP'];
-export const RECEIVABLE: readonly Account[] = ['TUU', 'RAPPI'];
-export const ACCOUNT_LABEL: Record<Account, string> = { CAJA: 'Caja (efectivo)', BANCO: 'Banco', MP: 'Mercado Pago', TUU: 'TUU por cobrar', RAPPI: 'Rappi por cobrar' };
+export const RECEIVABLE: readonly Account[] = ['TUU', 'RAPPI', 'UBER'];
+export const ACCOUNT_LABEL: Record<Account, string> = { CAJA: 'Caja (efectivo)', BANCO: 'Banco', MP: 'Mercado Pago', TUU: 'TUU por cobrar', RAPPI: 'Rappi por cobrar', UBER: 'Uber por cobrar' };
 
 /** Con qué se pagó una compra o gasto. NONE = crédito del proveedor, tarjeta personal o capital propio: no sale del dinero del negocio. */
 export const PAID_FROM = ['CAJA', 'BANCO', 'MP', 'NONE'] as const;
@@ -38,6 +38,7 @@ export function accountForMethod(code: string | null | undefined): Account {
     case 'DEBIT': case 'CREDIT': case 'HISTORICO_TUU': return 'TUU';
     case 'MERCADO_PAGO': return 'MP';
     case 'RAPPI': return 'RAPPI';
+    case 'UBER': case 'UBER_EATS': return 'UBER';
     default: return 'BANCO';
   }
 }
@@ -47,11 +48,12 @@ export function accountForCharge(c: { paymentMethodCode: string | null; channelC
   if (c.paymentMethodCode) return accountForMethod(c.paymentMethodCode);
   if (c.channelCode === 'MERCADO_LIBRE') return 'MP';
   if (c.channelCode === 'RAPPI') return 'RAPPI';
+  if (c.channelCode === 'UBER' || c.channelCode === 'UBER_EATS') return 'UBER';
   return accountForMethod(c.mainPaymentCode);
 }
 
 export interface MoneyInputs {
-  start: Record<Account, number>;
+  start: Partial<Record<Account, number>>;
   payments: { methodCode: string; amount: number }[];
   charges: { paymentMethodCode: string | null; channelCode: string; mainPaymentCode: string | null; amount: number }[];
   refunds: number;

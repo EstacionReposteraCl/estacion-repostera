@@ -22,7 +22,7 @@ export default async function PricesPage({ searchParams }: { searchParams: SP })
       services.settings.overview(actor), services.reports.overview(actor, { from: minus(today, 90), to: today }), services.products.stockSetupInfo(actor, [product.id]),
     ]);
     const rule = (code: string) => settings.feeRules.find((r) => r.targetCode === code && r.isActive && !r.isManualPerSale);
-    const tuu = rule("DEBIT"); const rappi = rule("RAPPI");
+    const tuu = rule("DEBIT"); const rappi = rule("RAPPI"); const uber = rule("UBER") ?? rule("UBER_EATS");
     const ml = overview.breakdown.byChannel.find((c) => /mercado\s*libre/i.test(c.name));
     const mlPct = ml && ml.total > 0 ? Math.round((ml.charges / ml.total) * 1000) / 10 : 25;
     const avg = product.avgCost ? Math.round(Number(product.avgCost)) : null; const ref = info.referenceCosts.get(product.id) ?? null;
@@ -35,6 +35,7 @@ export default async function PricesPage({ searchParams }: { searchParams: SP })
         { key: "web", name: "Página web", fee: { percent: 0, fixed: 0 }, note: "ajusta si pagas comisión de pago" },
         { key: "ml", name: "Mercado Libre", fee: { percent: mlPct, fixed: 0 }, note: ml && ml.total > 0 ? `promedio real de tus ventas ML (90 días): ${mlPct}%` : "estimado; ajústalo" },
         { key: "rappi", name: "Rappi", fee: { percent: rappi ? pct(rappi.percentMilli) : 17.85, fixed: rappi?.fixedAmount ?? 0 }, note: "comisión de tu configuración" },
+        { key: "uber", name: "Uber", fee: { percent: uber ? pct(uber.percentMilli) : 0, fixed: uber?.fixedAmount ?? 0 }, note: uber ? "comisión de tu configuración" : "configura la comisión de Uber en Configuración" },
       ],
     };
   }

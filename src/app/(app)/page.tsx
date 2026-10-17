@@ -22,7 +22,7 @@ const GROUPS: { title: string; items: Mod[] }[] = [
   ] },
   { title: "Dinero", items: [
     { perm: "expense.write", title: "Gastos", text: "Arriendo, servicios, sueldos…", href: "/gastos", icon: "wallet" },
-    { perm: "money.manage", title: "Dinero disponible", text: "Caja, banco, Mercado Pago, TUU, Rappi", href: "/dinero", icon: "coins" },
+    { perm: "money.manage", title: "Dinero disponible", text: "Caja, banco, Mercado Pago, TUU, Rappi, Uber", href: "/dinero", icon: "coins" },
     { perm: "report.financial", title: "Reportes", text: "Ventas, costo y ganancia real", href: "/reportes", icon: "chart" },
     { perm: "report.financial", title: "Simulador de precios", text: "Precios y descuentos por canal", href: "/precios", icon: "trend" },
   ] },
@@ -100,7 +100,7 @@ export default async function HomePage() {
           <div className="home-kpi home-kpi-main"><span className="lbl">Ventas de hoy</span><strong>{peso(a.total)}</strong><span className="sub">{a.count} venta{a.count === 1 ? "" : "s"}</span></div>
           <div className="home-kpi"><Icon name="cash" /><span className="lbl">Efectivo</span><strong>{peso(a.by.cash)}</strong></div>
           <div className="home-kpi"><Icon name="card" /><span className="lbl">Tarjetas</span><strong>{peso(a.by.card)}</strong><span className="sub">débito y crédito</span></div>
-          <div className="home-kpi"><Icon name="phone" /><span className="lbl">Plataformas y otros</span><strong>{peso(a.by.other)}</strong><span className="sub">ML, Rappi, Mercado Pago, transf.</span></div>
+          <div className="home-kpi"><Icon name="phone" /><span className="lbl">Plataformas y otros</span><strong>{peso(a.by.other)}</strong><span className="sub">ML, Rappi, Uber, Mercado Pago, transf.</span></div>
           {a.profit !== null && <div className="home-kpi home-kpi-sun"><Icon name="trend" /><span className="lbl">Ganancia real del día</span><strong>{peso(a.profit)}</strong><span className="sub">después de costo y comisiones</span></div>}
         </div>
       ) : (

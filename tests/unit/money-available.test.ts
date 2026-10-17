@@ -108,3 +108,10 @@ test('gastos: filtro por "pagado con" (incluye la corrección más reciente y lo
   assert.deepEqual((await svc.expenses.list(admin, { from: '2026-10-01', to: '2026-10-31', paidFrom: 'CAJA' })).map((r) => r.description), ['Bolsas']);
   assert.equal((await svc.expenses.list(admin, { from: '2026-10-01', to: '2026-10-31', paidFrom: 'SIN' })).length, 0);
 });
+
+test('Uber: su medio de pago y su canal van a "Uber por cobrar" (como Rappi)', () => {
+  assert.equal(accountForMethod('UBER'), 'UBER');
+  assert.equal(accountForCharge({ paymentMethodCode: null, channelCode: 'UBER', mainPaymentCode: 'UBER' }), 'UBER');
+  const r = computeMoney({ start: { CAJA: 0 }, payments: [{ methodCode: 'UBER', amount: 10000 }], charges: [{ paymentMethodCode: null, channelCode: 'UBER', mainPaymentCode: 'UBER', amount: 3000 }], refunds: 0, outflows: [], moves: [] });
+  assert.equal(r.lines.find((l) => l.account === 'UBER')!.expected, 7000); assert.equal(r.receivable, 7000);
+});
