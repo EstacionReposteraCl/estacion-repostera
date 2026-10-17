@@ -5,12 +5,13 @@ import { lineTotalPerBase } from '../core/money/iva.ts';
 import { averageCostDisplay } from '../domain/inventory/inventory.ts';
 import { assertNoSensitiveKeys } from './sensitive.ts';
 
-export interface ProductPublicDTO { id: string; sku: string; name: string; unit: string; salePrice: number; stock: string | null; presentations: { id: string; name: string; salePrice: number }[] }
+export interface ProductPublicDTO { id: string; sku: string; name: string; unit: string; salePrice: number; stock: string | null; presentations: { id: string; name: string; salePrice: number }[]; /** Códigos de barras (para agregar al escanear). */ barcodes?: string[] }
 export interface ProductAdminDTO extends ProductPublicDTO { category: string | null; categoryId: string | null; brand: string | null; barcodes: string[]; kind: 'GOODS' | 'SERVICE'; vatTreatment: 'AFECTO' | 'EXENTO'; isActive: boolean; avgCost: string | null; inventoryValue: number | null }
 
 export function toProductPublicDTO(r: ProductSearchRow): ProductPublicDTO {
   return assertNoSensitiveKeys({
     id: r.id, sku: r.sku, name: r.name, unit: r.unitCode, salePrice: r.salePrice, stock: r.stockQty === null ? null : formatQuantity(r.stockQty),
+    barcodes: r.barcodes ?? [],
     presentations: r.presentations.map((p) => ({ id: p.id, name: p.name, salePrice: p.salePrice ?? lineTotalPerBase(p.baseQuantity, r.salePrice) })),
   });
 }

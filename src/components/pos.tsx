@@ -53,9 +53,17 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
     setSearching(false); setResults(r.rows); if (!r.ok) setError(r.error);
     return r.rows;
   }
+  // Lector de código de barras: si lo escrito es un código (8 a 14 dígitos) y calza exacto con UN producto, se agrega solo (aunque el lector no mande Enter).
+  const isCode = (t: string) => /^\d{8,14}$/.test(t);
+  const exactByCode = (rows: ProductPublicDTO[], t: string) => { const m = rows.filter((r) => (r.barcodes ?? []).includes(t) || r.sku.toLowerCase() === t.toLowerCase()); return m.length === 1 ? m[0] : null; };
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const t = q.trim(); if (t.length < 2) return;
-    const h = setTimeout(() => { void runSearch(t); }, 250); return () => clearTimeout(h);
+    timer.current = setTimeout(async () => {
+      const rows = await runSearch(t);
+      if (rows && isCode(t)) { const hit = exactByCode(rows, t); if (hit) add(hit); }
+    }, isCode(q.trim()) ? 120 : 250);
+    return () => { if (timer.current) clearTimeout(timer.current); };
   }, [q]);
   useEffect(() => { searchRef.current?.focus(); }, []);
 
@@ -70,8 +78,12 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
   }
   async function onEnter() {
     const t = q.trim(); if (!t) return;
-    const rows = (await runSearch(t)) ?? results;
-    const exact = rows.find((r) => r.sku.toLowerCase() === t.toLowerCase());
+    if (timer.current) clearTimeout(timer.current);                 // el Enter del lector manda: no esperar la búsqueda automática
+    const my = ++seq.current; setSearching(true);
+    const r = await posSearchAction(t);
+    if (my !== seq.current) return;                                 // ya se agregó (la búsqueda automática ganó) o se escribió otra cosa
+    setSearching(false); const rows = r.rows; setResults(rows); if (!r.ok) { setError(r.error); return; }
+    const exact = exactByCode(rows, t);
     if (exact) add(exact); else if (rows.length === 1 || (/^\d{6,}$/.test(t) && rows.length >= 1)) add(rows[0]);
     else if (rows.length === 0) setError(`No se encontró “${t}”.`);
   }
