@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { closeCashAction, openCashAction } from "@/actions/cash.actions";
 import { parseMoneyCents } from "@/core/money/parse-money";
 
-/** Fondo fijo de cada turno (igual que STANDARD_FLOAT del servicio de caja). */
-const FLOAT = 20000;
+/** Lunes en Chile: día del retiro semanal de efectivo. */
+const isMonday = () => new Intl.DateTimeFormat("en-US", { timeZone: "America/Santiago", weekday: "short" }).format(new Date()) === "Mon";
 const clp = (n: number) => (n < 0 ? "−$" : "$") + Math.abs(n).toLocaleString("es-CL");
 /** Pesos enteros ("20.000" -> 20000); vacío -> 0; inválido o con centavos -> null. */
 const pesos = (s: string) => { if (!s.trim()) return 0; const c = parseMoneyCents(s); return c === null || c % 100 !== 0 ? null : c / 100; };
@@ -20,13 +20,14 @@ const Diff = ({ d }: { d: number }) => <span className={`pill ${d === 0 ? "pill-
  */
 export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sales = null, methods = [] }: { review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null; sales?: { total: number; count: number; byMethod: Method[] } | null; methods?: Method[] }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
-  const [v, setV] = useState({ float: (openFloat ?? suggestedFloat) ? (openFloat ?? suggestedFloat).toLocaleString("es-CL") : "", withdrawals: "", counted: "", note: "" });
+  const [v, setV] = useState({ float: (openFloat ?? suggestedFloat) ? (openFloat ?? suggestedFloat).toLocaleString("es-CL") : "", withdrawals: "", counted: "", note: "", takeOut: "" });
   const [dec, setDec] = useState<Record<string, string>>({});
   const f = openFloat ?? pesos(v.float), w = pesos(v.withdrawals), c = v.counted.trim() ? pesos(v.counted) : null;
+  const t = pesos(v.takeOut); const tooMuch = c !== null && t !== null && t > c; const monday = isMonday();
   const others: Method[] = review && sales ? sales.byMethod.filter((m) => m.code !== "CASH") : methods;
   const decVals = Object.fromEntries(others.map((m) => [m.code, dec[m.code]?.trim() ? pesos(dec[m.code]) : undefined]));
   const decOk = Object.values(decVals).every((x) => x !== null);
-  const ok = f !== null && w !== null && c !== null && decOk;
+  const ok = f !== null && w !== null && c !== null && decOk && t !== null && !tooMuch;
   const expected = review && cashSales !== null && f !== null && w !== null ? f + cashSales - w : null;
   const diff = expected !== null && c !== null ? c - expected : null;
   function submit() {
@@ -35,7 +36,7 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
     setErr(null);
     const declared = Object.fromEntries(Object.entries(decVals).filter(([, x]) => typeof x === "number")) as Record<string, number>;
     start(async () => {
-      const r = await closeCashAction({ float: f!, counted: c!, withdrawals: w!, note: v.note, declared });
+      const r = await closeCashAction({ float: f!, counted: c!, withdrawals: w!, note: v.note, declared, takeOut: t ?? 0 });
       if (r.ok) router.push(`/caja/cierre?ver=${encodeURIComponent(r.id)}&fecha=${r.date}`); else setErr(r.error);
     });
   }
@@ -51,16 +52,16 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
 
       <h3 className="arqueo-h">1 · Efectivo</h3>
       <table className="list arqueo-t"><tbody>
-        <tr><td>Fondo inicial (sencillo con que partió)</td><td className="num">{openFloat !== null ? <><b>{clp(openFloat)}</b><div className="muted small">fijado en la apertura</div></>
+        <tr><td>Efectivo con que partió la caja</td><td className="num">{openFloat !== null ? <><b>{clp(openFloat)}</b><div className="muted small">fijado en la apertura</div></>
           : <><input id="cc-float" className="money" inputMode="numeric" value={v.float} onChange={(e) => setV({ ...v, float: e.target.value })} placeholder="$ 0" aria-label="Fondo inicial" />{bad(f, v.float)}</>}</td></tr>
         {review && cashSales !== null && <tr><td>+ Ventas en efectivo</td><td className="num">{clp(cashSales)}</td></tr>}
         <tr><td>− Retiros o pagos hechos con efectivo de la caja</td><td className="num"><input id="cc-w" className="money" inputMode="numeric" value={v.withdrawals} onChange={(e) => setV({ ...v, withdrawals: e.target.value })} placeholder="$ 0" aria-label="Retiros o pagos" />{bad(w, v.withdrawals)}</td></tr>
         {expected !== null && <tr className="arqueo-sub"><td>= Debería haber en la caja</td><td className="num"><b>{clp(expected)}</b></td></tr>}
         <tr className="arqueo-key"><td><b>Efectivo contado</b> (todo lo que hay ahora)</td><td className="num"><input id="cc-c" className="money money-big" inputMode="numeric" value={v.counted} onChange={(e) => setV({ ...v, counted: e.target.value })} placeholder="$" aria-label="Efectivo contado" />{bad(c, v.counted)}</td></tr>
         {diff !== null && <tr><td>Resultado</td><td className="num"><Diff d={diff} /></td></tr>}
-        {c !== null && c > 0 && (c >= FLOAT
-          ? <tr className="arqueo-key"><td><b>Retira de la caja</b><div className="muted small">deja {clp(FLOAT)} de fondo para el próximo turno</div></td><td className="num"><b>{clp(c - FLOAT)}</b></td></tr>
-          : <tr><td>Falta para completar el fondo de {clp(FLOAT)}</td><td className="num"><span className="pill pill-warn">{clp(FLOAT - c)}</span></td></tr>)}
+        <tr className={monday ? "arqueo-key" : undefined}><td>− Efectivo que retiras ahora para guardar{monday ? <div className="small"><b>Hoy es lunes: día del retiro semanal.</b></div> : <div className="muted small">solo si sacas plata al cerrar (los lunes)</div>}</td>
+          <td className="num"><input id="cc-t" className="money" inputMode="numeric" value={v.takeOut} onChange={(e) => setV({ ...v, takeOut: e.target.value })} placeholder="$ 0" aria-label="Efectivo retirado" />{bad(t, v.takeOut)}{tooMuch && <span className="out small">más de lo contado</span>}</td></tr>
+        {c !== null && t !== null && !tooMuch && <tr className="arqueo-sub"><td>= Queda en la caja para el próximo turno</td><td className="num"><b>{clp(c - t)}</b></td></tr>}
       </tbody></table>
 
       {others.length > 0 && (<>
@@ -101,9 +102,9 @@ export function CashOpenForm({ suggestedFloat }: { suggestedFloat: number }) {
   return (
     <div className="formcard cash-open" style={{ maxWidth: 640 }}>
       <h2 className="sect" style={{ marginTop: 0 }}>Abrir caja</h2>
-      <p className="muted small" style={{ marginTop: 0 }}>Cuenta el sencillo con que parte la caja y anótalo. Queda fijo para el cierre de este turno.</p>
+      <p className="muted small" style={{ marginTop: 0 }}>Te propone lo que quedó en la caja al último cierre (el efectivo se acumula y se retira los lunes). Si al contar hay otro monto, corrígelo. Queda fijo para el cierre de este turno.</p>
       <div className="fields" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
-        <div className="field"><label htmlFor="co-float">Fondo inicial (sencillo)</label><input id="co-float" inputMode="numeric" value={float} onChange={(e) => setFloat(e.target.value)} placeholder="$ 0" />{float.trim() && f === null && <span className="out small">monto inválido</span>}</div>
+        <div className="field"><label htmlFor="co-float">Efectivo con que parte la caja</label><input id="co-float" inputMode="numeric" value={float} onChange={(e) => setFloat(e.target.value)} placeholder="$ 0" />{float.trim() && f === null && <span className="out small">monto inválido</span>}</div>
         <div className="field"><label htmlFor="co-note">Nota (opcional)</label><input id="co-note" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} /></div>
       </div>
       <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || f === null} onClick={() => start(async () => {

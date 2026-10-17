@@ -5,9 +5,9 @@ import { getActor } from "../core/auth/get-actor";
 import { toClientError } from "../core/errors";
 import { services } from "../server/container";
 
-export async function closeCashAction(i: { float: number; counted: number; withdrawals: number; note: string; declared?: Record<string, number> }): Promise<{ ok: true; id: string; date: string } | { ok: false; error: string }> {
+export async function closeCashAction(i: { float: number; counted: number; withdrawals: number; note: string; declared?: Record<string, number>; takeOut?: number }): Promise<{ ok: true; id: string; date: string } | { ok: false; error: string }> {
   try {
-    const r = await services.cash.close(await getActor(), { float: Number(i.float), counted: Number(i.counted), withdrawals: Number(i.withdrawals), note: String(i.note ?? ""), declared: Object.fromEntries(Object.entries(i.declared ?? {}).map(([k, v]) => [String(k), Number(v)])) });
+    const r = await services.cash.close(await getActor(), { float: Number(i.float), counted: Number(i.counted), withdrawals: Number(i.withdrawals), note: String(i.note ?? ""), declared: Object.fromEntries(Object.entries(i.declared ?? {}).map(([k, v]) => [String(k), Number(v)])), takeOut: Number(i.takeOut ?? 0) });
     revalidatePath("/caja/cierre"); return { ok: true, id: r.id, date: r.date };
   } catch (e) { return { ok: false, error: toClientError(e).message }; }
 }

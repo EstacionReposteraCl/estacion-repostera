@@ -193,6 +193,8 @@ export interface CashCloseRecord {
   openId?: string | null; openedBy?: string | null; openedAt?: string | null; withoutOpen?: boolean;
   /** Montos declarados por quien cierra para los otros medios (p. ej. total del cierre de la máquina TUU), por código de medio. */
   declared?: Record<string, Peso> | null;
+  /** Efectivo que se sacó de la caja al cerrar (p. ej. el retiro semanal de los lunes). Queda en caja: counted − takeOut. */
+  takeOut?: Peso;
 }
 /** Apertura de caja (bitácora: action = 'cash.open'): fondo inicial fijado por quien abre. */
 export interface CashOpenRecord { id: string; at: Date; userId: string; userName: string; branchId: string; date: string; float: Peso; note: string | null }

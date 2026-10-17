@@ -36,13 +36,13 @@ test('vendedor: cierre a ciegas (no recibe esperado ni diferencia ni montos); el
   const row = ha.rows[0] as CashCloseRecord; assert.equal(row.expectedCash, 28000); assert.equal(row.diff, 0); assert.equal(row.role, 'VENDEDOR');
 });
 
-test('cierres por turno: el segundo cierre del día solo cuenta las ventas posteriores al primero; fondo sugerido = último fondo', async () => {
+test('cierres por turno: el segundo cierre del día solo cuenta las ventas posteriores al primero; fondo sugerido = lo que quedó en caja al último cierre', async () => {
   const { db, svc, efe, setClock } = setup();
   setClock(T('14:00')); await svc.cash.close(admin, { float: 15000, counted: 23000 });
   db.cashSales.push({ date: '2026-10-07', at: T('15:00'), total: 2500, payments: [efe(2500)] }); // venta posterior al cierre
   setClock(T('20:00'));
   const st = await svc.cash.status(admin);
-  assert.equal(st.closesToday, 1); assert.equal(st.salesCount, 1); assert.equal(st.summary!.cash, 2500); assert.equal(st.suggestedFloat, 20000);
+  assert.equal(st.closesToday, 1); assert.equal(st.salesCount, 1); assert.equal(st.summary!.cash, 2500); assert.equal(st.suggestedFloat, 23000);
   const r = await svc.cash.close(admin, { float: 15000, counted: 17500 }) as CashCloseRecord;
   assert.equal(r.seq, 2); assert.equal(r.expectedCash, 17500); assert.equal(r.diff, 0); assert.ok(r.periodFrom);
 });
@@ -94,4 +94,15 @@ test('el cierre solo cuenta efectivo, débito y crédito: Mercado Pago, Rappi y 
   assert.deepEqual(st.summary!.byMethod.map((m) => m.code).sort(), ['CASH', 'DEBIT']);
   assert.equal(st.summary!.total, 13000 + 1000); assert.equal(st.summary!.cash, 9000); assert.equal(st.salesCount, 3);
   assert.deepEqual(st.methods, [{ code: 'DEBIT', name: 'Débito' }]);
+});
+
+test('caja acumulada: el próximo turno parte con lo que quedó; el retiro (lunes) se descuenta y no puede superar lo contado', async () => {
+  const { svc, setClock } = setup();
+  setClock(T('14:00')); await assert.rejects(svc.cash.close(admin, { float: 30000, counted: 30000, takeOut: 30001 }), /más efectivo del que contaste/);
+  const r = await svc.cash.close(admin, { float: 30000, counted: 52000, takeOut: 40000 }) as CashCloseRecord;
+  assert.equal(r.takeOut, 40000); assert.equal(r.counted, 52000);
+  setClock(T('20:00')); assert.equal((await svc.cash.status(admin)).suggestedFloat, 12000);
+  await svc.cash.close(admin, { float: 12000, counted: 15500 });
+  assert.equal((await svc.cash.status(admin)).suggestedFloat, 15500);
+  const b = await svc.cash.close(s1, { float: 15500, counted: 15500, takeOut: 500 }); assert.equal(b.takeOut, 500);
 });
