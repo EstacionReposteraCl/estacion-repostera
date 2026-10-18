@@ -75,6 +75,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
 
   // --- formulario + historial ---
   const st = await services.cash.status(actor);
+  const out = st.review ? await services.money.cashOutflows(actor, st.date, st.since).catch(() => null) : null;   // pagos/retiros con efectivo ya registrados
   const from = st.review ? (iso(sp.desde) ?? today) : today; const to = st.review ? (iso(sp.hasta) ?? today) : today;
   const h = await services.cash.history(actor, st.review ? { from: from <= to ? from : to, to: from <= to ? to : from } : undefined);
   return (
@@ -90,7 +91,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
         <CashOpenForm suggestedFloat={st.suggestedFloat} />
         <p className="muted small" style={{ maxWidth: 640 }}>⚠ La caja no está abierta. Puedes vender igual; al abrir, las ventas de hoy quedan en este turno. Si cierras sin abrir, el fondo inicial lo escribes al cerrar.</p>
       </>)}
-      <CashCloseForm key={st.open?.id ?? "sin-apertura"} review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} openFloat={st.open?.float ?? null} sales={st.summary ? { total: st.summary.total, count: st.summary.salesCount, byMethod: st.summary.byMethod } : null} methods={st.methods} />
+      <CashCloseForm key={st.open?.id ?? "sin-apertura"} review={st.review} suggestedFloat={st.suggestedFloat} cashSales={st.summary?.cash ?? null} openFloat={st.open?.float ?? null} sales={st.summary ? { total: st.summary.total, count: st.summary.salesCount, byMethod: st.summary.byMethod } : null} methods={st.methods} cashOut={out && out.items.length ? out : null} />
 
       <h2 className="sect">{st.review ? "Cierres registrados" : "Mis cierres de hoy"}</h2>
       {st.review && (

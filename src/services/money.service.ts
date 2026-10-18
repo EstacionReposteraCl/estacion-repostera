@@ -60,6 +60,24 @@ export function createMoneyService({ uow, money, catalog, now = () => new Date()
       await uow.run((tx) => tx.audit.write({ action: 'money.move.void', entity: 'MoneyMove', entityId: String(id), userId: actor.userId, metadata: { reason: r } }));
     },
 
+    /**
+     * Salidas de efectivo de la caja del día `date` registradas después de `since` (el último cierre):
+     * traspasos/retiros desde CAJA (los aportes a CAJA restan) y compras/gastos pagados con CAJA. Para el cierre de caja.
+     */
+    async cashOutflows(actor: Actor | null, date: string, since: Date | null): Promise<{ total: number; items: { label: string; amount: number }[] }> {
+      assertCan(actor, 'money.manage');
+      const after = since ?? new Date(now().getTime() - 36 * 3600_000);
+      const [moves, data] = await Promise.all([money.moves(actor.branchId, after), money.data(actor.branchId, after, date)]);
+      const items: { label: string; amount: number }[] = [];
+      for (const m of moves) {
+        if (m.voided || m.date !== date) continue;
+        if (m.from === 'CAJA') items.push({ label: m.note || 'Retiro de caja', amount: m.amount });
+        else if (m.to === 'CAJA') items.push({ label: m.note || 'Ingreso a caja', amount: -m.amount });
+      }
+      for (const o of data.outflows) if (o.paidFrom === 'CAJA' && o.date === date) items.push({ label: o.label, amount: o.amount });
+      return { total: items.reduce((a, i) => a + i.amount, 0), items };
+    },
+
     /** Indica (o corrige) con qué se pagó una compra o un gasto. */
     async setSource(actor: Actor | null, kind: 'PURCHASE' | 'EXPENSE', id: string, paidFrom: string): Promise<void> {
       assertCan(actor, 'money.manage');

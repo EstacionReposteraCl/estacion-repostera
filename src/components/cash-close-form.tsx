@@ -18,9 +18,9 @@ const Diff = ({ d }: { d: number }) => <span className={`pill ${d === 0 ? "pill-
  * (débito, crédito, transferencia, Mercado Pago, Rappi) declarados vs. lo registrado en el sistema.
  * review = administrador: ve lo del sistema y las diferencias. Vendedor: arqueo a ciegas (solo escribe lo que cuenta).
  */
-export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sales = null, methods = [] }: { review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null; sales?: { total: number; count: number; byMethod: Method[] } | null; methods?: Method[] }) {
+export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sales = null, methods = [], cashOut = null }: { review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null; sales?: { total: number; count: number; byMethod: Method[] } | null; methods?: Method[]; cashOut?: { total: number; items: { label: string; amount: number }[] } | null }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
-  const [v, setV] = useState({ float: (openFloat ?? suggestedFloat) ? (openFloat ?? suggestedFloat).toLocaleString("es-CL") : "", withdrawals: "", counted: "", note: "", takeOut: "" });
+  const [v, setV] = useState({ float: (openFloat ?? suggestedFloat) ? (openFloat ?? suggestedFloat).toLocaleString("es-CL") : "", withdrawals: cashOut && cashOut.total > 0 ? cashOut.total.toLocaleString("es-CL") : "", counted: "", note: "", takeOut: "" });
   const [dec, setDec] = useState<Record<string, string>>({});
   const f = openFloat ?? pesos(v.float), w = pesos(v.withdrawals), c = v.counted.trim() ? pesos(v.counted) : null;
   const t = pesos(v.takeOut); const tooMuch = c !== null && t !== null && t > c; const monday = isMonday();
@@ -56,6 +56,7 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
           : <><input id="cc-float" className="money" inputMode="numeric" value={v.float} onChange={(e) => setV({ ...v, float: e.target.value })} placeholder="$ 0" aria-label="Fondo inicial" />{bad(f, v.float)}</>}</td></tr>
         {review && cashSales !== null && <tr><td>+ Ventas en efectivo</td><td className="num">{clp(cashSales)}</td></tr>}
         <tr><td>− Retiros o pagos hechos con efectivo de la caja</td><td className="num"><input id="cc-w" className="money" inputMode="numeric" value={v.withdrawals} onChange={(e) => setV({ ...v, withdrawals: e.target.value })} placeholder="$ 0" aria-label="Retiros o pagos" />{bad(w, v.withdrawals)}</td></tr>
+        {cashOut && cashOut.items.length > 0 && <tr><td colSpan={2} className="muted small" style={{ paddingTop: 0 }}>Ya registrado hoy con efectivo de la caja: {cashOut.items.map((i) => `${i.label} ${clp(i.amount)}`).join(" · ")}. Si pagaste algo más con efectivo y no lo registraste, súmalo aquí.</td></tr>}
         {expected !== null && <tr className="arqueo-sub"><td>= Debería haber en la caja</td><td className="num"><b>{clp(expected)}</b></td></tr>}
         <tr className="arqueo-key"><td><b>Efectivo contado</b> (todo lo que hay ahora)</td><td className="num"><input id="cc-c" className="money money-big" inputMode="numeric" value={v.counted} onChange={(e) => setV({ ...v, counted: e.target.value })} placeholder="$" aria-label="Efectivo contado" />{bad(c, v.counted)}</td></tr>
         {diff !== null && <tr><td>Resultado</td><td className="num"><Diff d={diff} /></td></tr>}
