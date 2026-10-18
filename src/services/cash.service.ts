@@ -41,7 +41,13 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
       assertCan(actor, 'cash.close');
       const date = await today();
       const [last, closesToday, lastEver] = await Promise.all([cash.lastClose(actor.branchId, date), cash.closes(actor.branchId, { from: date, to: date, limit: 500 }), cash.closes(actor.branchId, { from: '2000-01-01', to: date, limit: 1 })]);
-      const left = lastEver[0] ? lastEver[0].counted - (lastEver[0].takeOut ?? 0) : null;      // lo que quedó en la caja al último cierre
+      let left = lastEver[0] ? lastEver[0].counted - (lastEver[0].takeOut ?? 0) : null;      // lo que quedó en la caja al último cierre
+      // Si un día anterior se abrió la caja y no se cerró: fondo de esa apertura + efectivo vendido en ese turno.
+      const prevOpen = (await cash.opens(actor.branchId, { from: '2000-01-01', to: date, limit: 1 }))[0];
+      if (prevOpen && prevOpen.date < date && (!lastEver[0] || prevOpen.at > lastEver[0].at)) {
+        const s = await cash.summary(actor.branchId, prevOpen.date, (await cash.lastClose(actor.branchId, prevOpen.date))?.at ?? null, CLOSE_METHODS);
+        left = prevOpen.float + s.cash;
+      }
       const [summary, open] = await Promise.all([cash.summary(actor.branchId, date, last?.at ?? null, CLOSE_METHODS), currentOpen(cash, actor.branchId, date)]);
       const review = can(actor.role, 'cash.review');
       const methods = summary.byMethod.filter((m) => m.code !== 'CASH').map((m) => ({ code: m.code, name: m.name }));   // medios a declarar (sin montos para el vendedor)

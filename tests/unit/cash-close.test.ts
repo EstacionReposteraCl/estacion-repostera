@@ -106,3 +106,13 @@ test('caja acumulada: el próximo turno parte con lo que quedó; el retiro (lune
   assert.equal((await svc.cash.status(admin)).suggestedFloat, 15500);
   const b = await svc.cash.close(s1, { float: 15500, counted: 15500, takeOut: 500 }); assert.equal(b.takeOut, 500);
 });
+
+test('caja sin cerrar el día anterior: al día siguiente sugiere el fondo de esa apertura + el efectivo vendido', async () => {
+  const { db, svc, setClock } = setup();
+  db.cashSales.length = 0;
+  setClock(T('09:00')); await svc.cash.open(admin, { float: 48850 });
+  db.cashSales.push({ date: '2026-10-07', at: T('11:00'), total: 8290, payments: [{ code: 'CASH', name: 'Efectivo', amount: 8290 }] });
+  setClock(new Date('2026-10-08T10:00:00-03:00'));
+  const st = await svc.cash.status(admin);
+  assert.equal(st.open, null); assert.equal(st.suggestedFloat, 48850 + 8290);
+});
