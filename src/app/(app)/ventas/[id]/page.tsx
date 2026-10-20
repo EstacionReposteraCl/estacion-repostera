@@ -51,7 +51,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
       <ReceiptActions saleId={sale.id} fresh={Boolean(nueva)} />
       {dte && <DteSalePanel saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} ncFolio={nc ? nc.folio : null} ncManual={!!nc?.manual} tipo={boleta?.tipo ?? null} openFactura={factura === "1"} canVoid={can(actor.role, "sale.void")} voided={sale.status === "VOIDED"}
         card={meta.payments.some((p) => /d[ée]bito|cr[ée]dito|tuu/i.test(p.method))} />}
-      {fin && <SaleAdminPanel saleId={sale.id} status={sale.status} fin={fin.financial} charges={fin.charges} />}
+      {fin && <SaleAdminPanel saleId={sale.id} status={sale.status} fin={fin.financial} charges={fin.charges} total={sale.total} />}
     </main>
   );
 }

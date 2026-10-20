@@ -8,9 +8,9 @@ interface Charge { id: string; type: string; amount: number; addedAfterClose: bo
 const clp = (n: number) => (n < 0 ? "−$" : "$") + Math.abs(n).toLocaleString("es-CL");
 const TYPES: Record<string, string> = { PAYMENT_FEE: "Comisión medio de pago", CHANNEL_COMMISSION: "Comisión del canal", CHANNEL_FIXED_FEE: "Cargo fijo del canal", SHIPPING_COST: "Envío asumido", OTHER: "Otro" };
 
-export function SaleAdminPanel({ saleId, status, fin, charges }: { saleId: string; status: "COMPLETED" | "VOIDED"; fin: Fin; charges: Charge[] }) {
+export function SaleAdminPanel({ saleId, status, fin, charges, total = 0 }: { saleId: string; status: "COMPLETED" | "VOIDED"; fin: Fin; charges: Charge[]; total?: number }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
-  const [type, setType] = useState("CHANNEL_COMMISSION"); const [amount, setAmount] = useState(""); const [reason, setReason] = useState(""); const [voidReason, setVoidReason] = useState("");
+  const [type, setType] = useState("CHANNEL_COMMISSION"); const [amount, setAmount] = useState(""); const [pct, setPct] = useState(""); const [reason, setReason] = useState(""); const [voidReason, setVoidReason] = useState("");
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>, after?: () => void) => start(async () => { setErr(null); const r = await fn(); if (!r.ok) setErr(r.error ?? "Error"); else { after?.(); router.refresh(); } });
   const margin = fin.netTotal ? Math.round((fin.realProfit / fin.netTotal) * 1000) / 10 : 0;
   return (
@@ -33,12 +33,16 @@ export function SaleAdminPanel({ saleId, status, fin, charges }: { saleId: strin
       </>)}
       {status === "COMPLETED" && (<>
         <h3 style={{ fontSize: "0.95rem", margin: "16px 0 6px" }}>Agregar cargo posterior</h3>
-        <p className="muted small" style={{ marginTop: 0 }}>Por ejemplo, la comisión que cobró Mercado Libre o un envío que asumió el negocio. Recalcula la ganancia real y queda auditado.</p>
+        <p className="muted small" style={{ marginTop: 0 }}>Por ejemplo, la comisión que cobró Mercado Libre o un envío que asumió el negocio. Escribe un <b>%</b> (se calcula sobre el total de la venta) o directamente el <b>monto en pesos</b>. Recalcula la ganancia real y queda auditado.</p>
         <div className="inline">
           <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo de cargo">{Object.entries(TYPES).filter(([k]) => k !== "PAYMENT_FEE").map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-          <input className="money" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="Monto $" aria-label="Monto del cargo" />
+          {total > 0 && <input className="money" style={{ width: 90 }} value={pct} inputMode="decimal" placeholder="%" aria-label="Porcentaje de la venta" title={`Porcentaje sobre el total de la venta (${total.toLocaleString("es-CL")} con IVA)`}
+            onChange={(e) => { const raw = e.target.value; setPct(raw); const x = Number(raw.replace(",", ".").replace(/[%\s]/g, ""));
+              if (raw.trim() && Number.isFinite(x) && x > 0 && x <= 100) { setAmount(Math.round((total * x) / 100).toLocaleString("es-CL")); if (!reason.trim() || /^Comisión \d/.test(reason)) setReason(`Comisión ${raw.trim().replace(/%$/, "")}%`); }
+              else if (!raw.trim()) setAmount(""); }} />}
+          <input className="money" value={amount} onChange={(e) => { setAmount(e.target.value); setPct(""); }} inputMode="numeric" placeholder="Monto $" aria-label="Monto del cargo" />
           <input className="note" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo (obligatorio)" aria-label="Motivo" />
-          <button className="btn btn-small" disabled={pending} onClick={() => run(() => addLateChargeAction(saleId, { type: type as never, amount: Number(amount.replace(/[.$\s]/g, "")), reason }), () => { setAmount(""); setReason(""); })}>Agregar</button>
+          <button className="btn btn-small" disabled={pending} onClick={() => run(() => addLateChargeAction(saleId, { type: type as never, amount: Number(amount.replace(/[.$\s]/g, "")), reason }), () => { setAmount(""); setPct(""); setReason(""); })}>Agregar</button>
         </div>
         <div className="danger-zone">
           <h3 style={{ fontSize: "0.95rem", margin: "0 0 6px" }}>Anular venta</h3>
