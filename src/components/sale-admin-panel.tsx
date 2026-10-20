@@ -35,8 +35,8 @@ export function SaleAdminPanel({ saleId, status, fin, charges, total = 0 }: { sa
         <h3 style={{ fontSize: "0.95rem", margin: "16px 0 6px" }}>Agregar cargo posterior</h3>
         <p className="muted small" style={{ marginTop: 0 }}>Por ejemplo, la comisión que cobró Mercado Libre o un envío que asumió el negocio. Escribe un <b>%</b> (se calcula sobre el total de la venta) o directamente el <b>monto en pesos</b>. Recalcula la ganancia real y queda auditado.</p>
         <div className="inline">
-          <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Tipo de cargo">{Object.entries(TYPES).filter(([k]) => k !== "PAYMENT_FEE").map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
-          {total > 0 && <input className="money" style={{ width: 90 }} value={pct} inputMode="decimal" placeholder="%" aria-label="Porcentaje de la venta" title={`Porcentaje sobre el total de la venta (${total.toLocaleString("es-CL")} con IVA)`}
+          <select value={type} onChange={(e) => { setType(e.target.value); if (pct) { setPct(""); setAmount(""); if (/^Comisión \d/.test(reason)) setReason(""); } }} aria-label="Tipo de cargo">{Object.entries(TYPES).filter(([k]) => k !== "PAYMENT_FEE").map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+          {total > 0 && type === "CHANNEL_COMMISSION" && <input className="money" style={{ width: 90 }} value={pct} inputMode="decimal" placeholder="%" aria-label="Porcentaje de la venta" title={`Porcentaje sobre el total de la venta (${total.toLocaleString("es-CL")} con IVA)`}
             onChange={(e) => { const raw = e.target.value; setPct(raw); const x = Number(raw.replace(",", ".").replace(/[%\s]/g, ""));
               if (raw.trim() && Number.isFinite(x) && x > 0 && x <= 100) { setAmount(Math.round((total * x) / 100).toLocaleString("es-CL")); if (!reason.trim() || /^Comisión \d/.test(reason)) setReason(`Comisión ${raw.trim().replace(/%$/, "")}%`); }
               else if (!raw.trim()) setAmount(""); }} />}
