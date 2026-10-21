@@ -94,3 +94,7 @@ test('ventas web: revisión manual (elegir producto), ignorar, y aviso de Jumpse
   await web.ignore(admin, 1023, 'pedido de prueba');
   assert.equal((await web.status(admin)).recent.find((x) => x.orderId === 1023)?.state, 'IGNORED');
 });
+
+test('estado del pedido sin importar mayúsculas: Jumpseller ahora envía "paid"', () => {
+  assert.equal(parseWebOrder({ order: { id: 1026, status: 'paid' } }).status.toLowerCase(), 'paid');
+});

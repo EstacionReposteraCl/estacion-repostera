@@ -56,7 +56,7 @@ async function adminData(actor: Actor) {
   const alerts: Alert[] = [];
   if (snap?.lowStock.length) alerts.push({ text: `${snap.lowStock.length >= 30 ? "30 o más" : snap.lowStock.length} producto(s) con stock bajo (${snap.lowStock.slice(0, 3).map((l) => l.name).join(", ")}${snap.lowStock.length > 3 ? "…" : ""})`, href: "/inventario?stock=bajo", tone: "warn" });
   if (snap?.productsWithoutStock) alerts.push({ text: `${snap.productsWithoutStock} producto(s) sin stock`, href: "/inventario?stock=sin" });
-  const paid = (orders ?? []).filter((o) => o.status === "Paid" && o.createdAt && Date.now() - new Date(o.createdAt).getTime() < 3 * 86400e3);
+  const paid = (orders ?? []).filter((o) => o.status?.toLowerCase() === "paid" && o.createdAt && Date.now() - new Date(o.createdAt).getTime() < 3 * 86400e3);
   if (paid.length) alerts.push({ text: `${paid.length} pedido(s) web pagado(s) en los últimos 3 días: revisa las etiquetas`, href: "/despacho" });
   if (web?.pending.length) alerts.push({ text: `${web.pending.length} pedido(s) de la página web por revisar (no se registraron solos)`, href: "/ventas-web", tone: "warn" });
   const unassigned = money?.outflows.filter((o) => o.paidFrom === null).length ?? 0;

@@ -128,7 +128,7 @@ export function createWebOrdersService(d: Deps) {
 
   async function handle(actor: Actor, raw: unknown, cfg: WebSyncConfig, auto: boolean, overrides?: Parameters<typeof processOrder>[2]): Promise<WebOrderEntry | null> {
     const order = parseWebOrder(raw);
-    if (!order.id || order.status !== 'Paid') return null;
+    if (!order.id || order.status.toLowerCase() !== 'paid') return null;
     const date = orderBusinessDate(order.date); if (!date || date < cfg.since) return null;
     const prev = await current(order.id);
     if (prev && !overrides && prev.state !== 'PENDING') return prev;            // ya resuelto
