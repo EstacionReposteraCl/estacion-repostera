@@ -21,6 +21,7 @@ export default async function ShippingLabelPage({ params, searchParams }: { para
         <Link className={`btn btn-small${big ? "" : " btn-primary"}`} href={`/despacho/${id}`}>Térmica (rollo)</Link>
         <Link className={`btn btn-small${big ? " btn-primary" : ""}`} href={`/despacho/${id}?formato=100x150`}>Etiqueta 100 × 150 mm</Link>
       </div>
+      {big && <style>{"@page { size: 100mm 150mm; margin: 0; }"}</style>}
       <article className={`receipt label${big ? " lb-100" : ""}`}>
         <header>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -29,11 +30,11 @@ export default async function ShippingLabelPage({ params, searchParams }: { para
           <div className="lb-order">PEDIDO #{o.id}</div>
         </header>
         <div className="lb-sec">DESTINATARIO</div>
-        <div className="lb-name">{o.name || "—"}</div>
+        <div className={`lb-name${(o.name ?? "").length > 22 && !/\s/.test(o.name ?? "") ? " lb-long" : ""}`}>{o.name || "—"}</div>
         <div className="lb-addr">{o.address}{o.complement ? `, ${o.complement}` : ""}</div>
         {place && <div className="lb-addr">{place}</div>}
         {o.phone && <div className="lb-phone">Tel: {o.phone}</div>}
-        {o.shippingMethod && <><div className="lb-sec">ENVÍO</div><div>{o.shippingMethod}</div></>}
+        {o.shippingMethod && <><div className="lb-sec">ENVÍO</div><div>{/store[_\s-]?pickup/i.test(o.shippingMethod) ? "Retiro en tienda" : o.shippingMethod}</div></>}
         {o.products.length > 0 && <><div className="lb-sec">PRODUCTOS</div>
           <table><tbody>{o.products.map((p, i) => <tr key={i}><td className="num" style={{ paddingLeft: 0, paddingRight: 6 }}>{p.qty} x</td><td style={{ textAlign: "left" }}>{p.name}</td></tr>)}</tbody></table></>}
         {o.notes && <><div className="lb-sec">NOTA</div><div>{o.notes}</div></>}
