@@ -6,17 +6,22 @@ import { services } from "@/server/container";
 import { toClientError } from "@/core/errors";
 import { PrintButton } from "@/components/print-button";
 
-export default async function ShippingLabelPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ShippingLabelPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ formato?: string }> }) {
   const { actor } = await requireActor();
   if (!can(actor.role, "shipping.labels")) redirect("/");
-  const { id } = await params;
+  const { id } = await params; const big = (await searchParams).formato === "100x150";
   let o: Awaited<ReturnType<typeof services.shipping.order>> | null = null; let err: string | null = null;
   try { o = await services.shipping.order(actor, Number(id)); } catch (e) { err = toClientError(e).message; }
   if (!o) return <main className="page"><p className="error" role="alert">{err}</p><Link className="btn" href="/despacho">Volver</Link></main>;
   const place = [o.municipality, o.city && o.city !== o.municipality ? o.city : "", o.region].filter(Boolean).join(", ");
   return (
     <main className="page">
-      <article className="receipt label">
+      <div className="actions noprint" style={{ justifyContent: "center", marginBottom: 10 }}>
+        <span className="muted small">Formato:</span>
+        <Link className={`btn btn-small${big ? "" : " btn-primary"}`} href={`/despacho/${id}`}>Térmica (rollo)</Link>
+        <Link className={`btn btn-small${big ? " btn-primary" : ""}`} href={`/despacho/${id}?formato=100x150`}>Etiqueta 100 × 150 mm</Link>
+      </div>
+      <article className={`receipt label${big ? " lb-100" : ""}`}>
         <header>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-er-bn.png" alt="Estación Repostera" className="rc-logo lb-logo" width={72} height={101} />
