@@ -1,4 +1,5 @@
 "use client";
+import { parseDiscount, spreadDiscount } from "@/domain/pricing/discount";
 // Caja. El navegador NUNCA decide precios: solo muestra un total calculado con las MISMAS funciones puras que usa el
 // servidor (src/core/money). El servidor recalcula todo y rechaza si los pagos no cuadran.
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -37,8 +38,22 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
   const searchRef = useRef<HTMLInputElement>(null); const seq = useRef(0);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
 
-  const total = useMemo(() => lines.reduce((s, l) => s + (Number.isFinite(lineTotal(l)) ? lineTotal(l) : 0), 0), [lines]);
+  const subtotal = useMemo(() => lines.reduce((s, l) => s + (Number.isFinite(lineTotal(l)) ? lineTotal(l) : 0), 0), [lines]);
   const invalidLine = lines.some((l) => !Number.isFinite(lineTotal(l)) || lineTotal(l) <= 0);
+  // Descuento a toda la venta (solo administrador): se reparte bajando el precio de cada línea; la boleta suma exacto.
+  const [discount, setDiscount] = useState("");
+  const disc = useMemo(() => {
+    if (!isAdmin || !discount.trim() || invalidLine || lines.length === 0) return null;
+    const amount = parseDiscount(discount, subtotal);
+    if (amount === null) return { error: "Descuento inválido (escribe un % o un monto menor al total)." } as const;
+    if (amount === 0) return null;
+    const qtys = lines.map((l) => Number(l.qty.replace(",", ".")));
+    const r = spreadDiscount(lines.map((l, i) => ({ qty: qtys[i], unitPrice: unitPrice(l) })), amount);
+    if (!r) return { error: "El descuento solo se puede aplicar con cantidades enteras." } as const;
+    return { prices: r.prices, applied: r.applied, asked: amount } as const;
+  }, [isAdmin, discount, invalidLine, lines, subtotal]);
+  const discOk = !disc || !("error" in disc);
+  const total = disc && !("error" in disc) ? subtotal - disc.applied : subtotal;
   // el último pago toma automáticamente lo que falta
   const payAmounts = pays.map((p, i) => (i === pays.length - 1 ? total - pays.slice(0, -1).reduce((s, x) => s + (toInt(x.amount) || 0), 0) : toInt(p.amount)));
   const paysOk = payAmounts.every((a) => Number.isSafeInteger(a) && a > 0) && payAmounts.reduce((s, a) => s + a, 0) === total;
@@ -102,13 +117,14 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
     const m = methods.find((x) => x.id === methodId); const ch = channels.find((c) => c.code === m?.code);
     if (ch && channel?.code === "LOCAL") setChannelId(ch.id);
   }
-  function reset() { setLines([]); setPays([{ methodId: cash?.id ?? "", amount: "" }]); setReceived(""); setExternalRef(""); setChannelId(local?.id ?? ""); attempt.current = null; searchRef.current?.focus(); }
+  function reset() { setDiscount(""); setLines([]); setPays([{ methodId: cash?.id ?? "", amount: "" }]); setReceived(""); setExternalRef(""); setChannelId(local?.id ?? ""); attempt.current = null; searchRef.current?.focus(); }
 
   function charge() {
     setError(null);
-    const input = { lines: lines.map((l) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(isAdmin && isManual(l) ? { manualUnitPrice: unitPrice(l) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
+    const d = disc && !("error" in disc) ? disc : null;
+    const input = { lines: lines.map((l, i) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(d ? { manualUnitPrice: d.prices[i] } : isAdmin && isManual(l) ? { manualUnitPrice: unitPrice(l) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
       externalRef: channel?.code !== "LOCAL" && externalRef.trim() ? externalRef.trim() : backdated && tuuRef.trim() ? `TUU ${tuuRef.trim()}` : null,
-      note: backdated ? "Venta atrasada (comprobante TUU)" : null, ...(backdated ? { saleDate } : {}) };
+      note: [backdated ? "Venta atrasada (comprobante TUU)" : "", d ? `Descuento ${discount.trim().endsWith("%") ? discount.trim() + " " : ""}${clp(d.applied)} sobre ${clp(subtotal)}` : ""].filter(Boolean).join(" · ") || null, ...(backdated ? { saleDate } : {}) };
     const payload = JSON.stringify(input);
     // misma venta reintentada (p. ej. se cortó la red) => MISMA clave: el servidor devuelve la venta ya creada, nunca duplica
     if (!attempt.current || attempt.current.payload !== payload) attempt.current = { payload, key: newKey() };
@@ -177,6 +193,14 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
             </>)}
           </div>
         )}
+        {isAdmin && lines.length > 0 && (
+          <div className="pos-discount">
+            <label htmlFor="discount">Descuento</label>
+            <input id="discount" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="Ej.: 20% o 1.500" autoComplete="off" />
+            {disc && "error" in disc && <p className="out small" style={{ margin: "4px 0 0" }}>{disc.error}</p>}
+            {disc && !("error" in disc) && <p className="small" style={{ margin: "4px 0 0" }}>Subtotal {clp(subtotal)} − descuento <b>{clp(disc.applied)}</b>{disc.applied !== disc.asked ? ` (ajustado por redondeo)` : ""}. La boleta muestra los precios ya rebajados.</p>}
+          </div>
+        )}
         <div className="pos-total"><span>Total</span><strong>{clp(total)}</strong></div>
         <label htmlFor="channel">Canal</label>
         <select id="channel" value={channelId} onChange={(e) => pickChannel(e.target.value)}>{channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -206,7 +230,7 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
           <button type="button" role="radio" aria-checked={doc === "factura"} className={doc === "factura" ? "on" : ""} onClick={() => setDoc("factura")}>Factura</button>
         </div>
         {doc === "factura" && <p className="muted small" style={{ margin: "4px 0 0" }}>Al cobrar te pedirá el RUT del cliente para emitir la factura.</p>}
-        <button className="btn btn-primary pos-charge" type="button" onClick={charge} disabled={pending || lines.length === 0 || invalidLine || !paysOk}>
+        <button className="btn btn-primary pos-charge" type="button" onClick={charge} disabled={pending || lines.length === 0 || invalidLine || !paysOk || !discOk}>
           {pending ? "Cobrando…" : backdated ? `Registrar venta del ${saleDate.split("-").reverse().slice(0, 2).join("-")} · ${clp(total)}` : `Cobrar ${clp(total)}`}
         </button>
         {!paysOk && lines.length > 0 && !invalidLine && <p className="muted small">Los montos de pago deben sumar el total.</p>}
