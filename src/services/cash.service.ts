@@ -109,7 +109,7 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
       return { review: false, rows: (await cash.closes(actor.branchId, { from: date, to: date, userId: actor.userId, limit: 50 })).map(blind) };
     },
     /** Nombre y RUT del negocio para el comprobante de cierre (ambos roles). */
-    async issuer(actor: Actor | null) { assertCan(actor, 'cash.close'); const b = await catalog.businessSettings(); return { legalName: b.legalName, taxId: b.taxId }; },
+    async issuer(actor: Actor | null) { assertCan(actor, 'cash.close'); const b = await catalog.businessSettings(); return { legalName: b.legalName, taxId: b.taxId, address: b.address ?? null }; },
     today: async (actor: Actor | null) => { assertCan(actor, 'cash.close'); return today(); },
   };
 }

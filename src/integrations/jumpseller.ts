@@ -7,7 +7,9 @@ export interface ShippingLabel {
   id: number; createdAt: string | null; status: string; shippingMethod: string; paymentMethod: string;
   name: string; phone: string; email: string;
   address: string; complement: string; municipality: string; city: string; region: string;
-  notes: string; products: { name: string; sku: string; qty: number }[]; total: number | null;
+  notes: string; products: { name: string; sku: string; qty: number; price: number | null }[]; total: number | null;
+  /** Datos extra (como la etiqueta de Jumpseller): RUT, código postal, país, retiro en tienda, montos. */
+  taxId: string; postal: string; country: string; pickup: boolean; pickupAddress: string; subtotal: number | null; shippingCost: number | null; discount: number | null; completedAt: string | null;
 }
 export interface OrderRow { id: number; createdAt: string | null; status: string; name: string; municipality: string; shippingMethod: string; total: number | null }
 
@@ -20,19 +22,25 @@ const unwrap = (v: unknown) => { const o = obj(v); return obj('order' in o ? o.o
 /** Convierte el JSON de un pedido de Jumpseller en los datos de la etiqueta (tolerante a campos faltantes). */
 export function toLabel(raw: unknown): ShippingLabel {
   const o = unwrap(raw); const sa = obj(o.shipping_address); const ba = obj(o.billing_address); const cu = obj(o.customer);
-  const name = [str(sa.name), str(sa.surname)].filter(Boolean).join(' ') || str(cu.fullname) || [str(ba.name), str(ba.surname)].filter(Boolean).join(' ') || str(cu.name);
+  const pa = obj(o.pickup_address); const isMail = (x: string) => /@/.test(x);
+  const full = str(cu.fullname) && !isMail(str(cu.fullname)) ? str(cu.fullname) : '';
+  const name = [str(sa.name), str(sa.surname)].filter(Boolean).join(' ') || full || [str(ba.name), str(ba.surname)].filter(Boolean).join(' ') || [str(pa.name), str(pa.surname)].filter(Boolean).join(' ') || str(cu.name) || str(cu.fullname);
+  const pickup = /pickup|retiro/i.test(str(o.shipping_option)) || (!Object.keys(sa).length && !!str(pa.address));
   const fields = Array.isArray(o.additional_fields) ? o.additional_fields.map(obj) : [];
   const fieldPhone = str(fields.find((f) => /tel[eé]fono|phone|celular|whats|fono/i.test(str(f.label)) && str(f.value))?.value);
   const prefix = str(cu.phone_prefix); const cuPhone = str(cu.phone) ? [prefix && !str(cu.phone).startsWith('+') ? `+${prefix.replace(/^\+/, '')}` : '', str(cu.phone)].filter(Boolean).join(' ') : '';
   const phone = str(sa.phone) || cuPhone || str(ba.phone) || fieldPhone;
-  const products = (Array.isArray(o.products) ? o.products : []).map((p) => { const x = obj(p); return { name: str(x.name), sku: str(x.sku), qty: num(x.qty) ?? num(x.quantity) ?? 1 }; }).filter((p) => p.name);
+  const products = (Array.isArray(o.products) ? o.products : []).map((p) => { const x = obj(p); return { name: str(x.name), sku: str(x.sku), qty: num(x.qty) ?? num(x.quantity) ?? 1, price: num(x.price) }; }).filter((p) => p.name);
   const additional = Array.isArray(o.additional_information) ? o.additional_information.map((a) => { const x = obj(a); return [str(x.label), str(x.value)].filter(Boolean).join(': '); }).filter(Boolean).join(' · ') : str(o.additional_information);
   return {
-    id: num(o.id) ?? 0, createdAt: str(o.created_at) || null, status: str(o.status), shippingMethod: str(o.shipping_method_name) || str(o.shipping_option), paymentMethod: str(o.payment_method_name),
+    id: num(o.id) ?? 0, createdAt: str(o.created_at) || null, status: str(o.status), shippingMethod: str(o.shipping_method_name) || (pickup ? 'Retiro en tienda' : str(o.shipping_option)), paymentMethod: str(o.payment_method_name),
     name, phone, email: str(cu.email),
     address: str(sa.address) || [str(sa.street_name), str(sa.street_number)].filter(Boolean).join(' '), complement: str(sa.complement),
     municipality: str(sa.municipality), city: str(sa.city), region: str(sa.region_name) || str(sa.region),
     notes: [str(o.customer_note) || str(o.note), additional].filter(Boolean).join(' · '), products, total: num(o.total),
+    taxId: str(sa.taxid) || str(ba.taxid), postal: str(sa.postal), country: str(sa.country) || str(ba.country),
+    pickup, pickupAddress: [str(pa.address), str(pa.complement), str(pa.municipality), str(pa.city)].filter(Boolean).join(', '),
+    subtotal: num(o.subtotal), shippingCost: num(o.shipping), discount: num(o.discount), completedAt: str(o.completed_at) || null,
   };
 }
 export const toRow = (raw: unknown): OrderRow => { const l = toLabel(raw); return { id: l.id, createdAt: l.createdAt, status: l.status, name: l.name, municipality: l.municipality || l.city, shippingMethod: l.shippingMethod, total: l.total }; };
