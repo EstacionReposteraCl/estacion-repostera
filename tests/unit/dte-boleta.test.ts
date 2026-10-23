@@ -100,3 +100,18 @@ test('boleta anulada a mano en Haulmer: se registra sin emitir nada, una sola ve
   await assert.rejects(dte.markAnnulledManually(admin, v.id, null), /ya figura anulada/);
   await assert.rejects(dte.annulBoleta(admin, v.id, 'x'), /ya fue anulada/);
 });
+
+test('compartir boleta: enlace firmado entrega el PDF de Haulmer; firma alterada o venta sin boleta → nada', async () => {
+  const { db, svc } = world(); const h = fakeHaulmer();
+  const call: HttpCall = async (url, init) => (url.includes('/pdf') ? { status: 200, text: async () => JSON.stringify({ pdf: Buffer.from('%PDF-1.4 hola').toString('base64') }) } : h.call(url, init));
+  const dte = createDteService({ uow: db.ports.uow, integrations: db.ports.integrations, catalog: db.ports.catalog, now: db.now, canSee: (a, id) => svc.sales.getSaleForActor(a, id, true), call, secret: () => 's'.repeat(32) });
+  await dte.connect(admin, { apiKey: 'k'.repeat(32) });
+  db.setStock('main', 'az', 15000n, 100000, 2);
+  const v = await svc.sales.closeSale(s1, sale([{ productId: 'az', quantity: '0,080' }], 960, 'ks1', 'CASH'));
+  assert.equal(await dte.shareRef(admin, v.id), null);
+  const b = await dte.issueBoleta(admin, v.id);
+  const sh = (await dte.shareRef(admin, v.id))!; assert.ok(sh.ref.startsWith(v.id + '.'));
+  const r = (await dte.publicPdf(sh.ref))!; assert.equal(r.pdf.toString(), '%PDF-1.4 hola'); assert.equal(r.filename, `boleta-${b.folio}.pdf`);
+  assert.equal(await dte.publicPdf(sh.ref.slice(0, -1) + (sh.ref.endsWith('A') ? 'B' : 'A')), null);
+  assert.equal(await dte.publicPdf('x'), null);
+});

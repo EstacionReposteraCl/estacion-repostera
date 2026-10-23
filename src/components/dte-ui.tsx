@@ -27,7 +27,7 @@ export function HaulmerConnectForm() {
 }
 
 /** Panel en el detalle de la venta: emitir la boleta electrónica (una vez), imprimirla y, si la venta se anula, anularla con nota de crédito. */
-export function DteSalePanel({ saleId, configured, canConfigure, folio, card, voided, ncFolio = null, ncManual = false, canVoid = false, tipo = 39, openFactura = false }: { saleId: string; configured: boolean; canConfigure: boolean; folio: number | null; card: boolean; voided: boolean; ncFolio?: number | null; ncManual?: boolean; canVoid?: boolean; tipo?: number | null; openFactura?: boolean }) {
+export function DteSalePanel({ saleId, configured, canConfigure, folio, card, voided, ncFolio = null, ncManual = false, canVoid = false, tipo = 39, openFactura = false, share = null }: { share?: { ref: string; email: string | null } | null; saleId: string; configured: boolean; canConfigure: boolean; folio: number | null; card: boolean; voided: boolean; ncFolio?: number | null; ncManual?: boolean; canVoid?: boolean; tipo?: number | null; openFactura?: boolean }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null); const [allowCard, setAllowCard] = useState(false);
   const [mode, setMode] = useState<"boleta" | "factura">(openFactura ? "factura" : "boleta");
   const doc = tipo === 33 ? "Factura electrónica" : tipo === 34 ? "Factura exenta electrónica" : "Boleta electrónica"; const docShort = tipo === 39 || !tipo ? "boleta" : "factura";
@@ -49,6 +49,7 @@ export function DteSalePanel({ saleId, configured, canConfigure, folio, card, vo
           setErr(null); start(async () => { const r = await markBoletaAnnulledAction(saleId, f); if (r.ok) router.refresh(); else setErr(r.error); });
         }}>Ya la anulé en Haulmer</button>}
       </div>
+      {share && ncFolio === null && !voided && <ShareDoc refId={share.ref} email={share.email} doc={doc} folio={folio} />}
       {err && <p className="error" role="alert">{err}</p>}
     </div>
   );
@@ -107,4 +108,27 @@ function FacturaForm({ saleId, card }: { saleId: string; card: boolean }) {
     }}>{pending ? "Emitiendo…" : "Emitir factura electrónica"}</button></div>
     {err && <p className="error" role="alert">{err}</p>}
   </>);
+}
+
+/** Compartir el PDF de la boleta/factura electrónica por WhatsApp o correo (enlace firmado, abre el PDF de Haulmer). */
+function ShareDoc({ refId, email, doc, folio }: { refId: string; email: string | null; doc: string; folio: number }) {
+  const [phone, setPhone] = useState(""); const [mail, setMail] = useState(email ?? ""); const [copied, setCopied] = useState(false);
+  const url = () => `${window.location.origin}/c/${refId}`;
+  const text = () => `¡Hola! Te enviamos tu ${doc.toLowerCase()} N° ${folio} de Estación Repostera: ${url()}\n¡Gracias por tu compra!`;
+  const waNumber = () => { const d = phone.replace(/\D/g, ""); return !d ? "" : d.length === 9 ? `56${d}` : d.length === 8 ? `569${d}` : d; };
+  return (
+    <div className="share-doc">
+      <div className="small" style={{ fontWeight: 700, margin: "12px 0 6px" }}>Enviar al cliente</div>
+      <div className="share-row">
+        <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Celular (opcional), ej. 9 1234 5678" aria-label="Celular del cliente" />
+        <button type="button" className="btn btn-small" onClick={() => window.open(`https://wa.me/${waNumber()}?text=${encodeURIComponent(text())}`, "_blank", "noopener")}>WhatsApp</button>
+      </div>
+      <div className="share-row">
+        <input value={mail} onChange={(e) => setMail(e.target.value)} inputMode="email" placeholder="Correo (opcional)" aria-label="Correo del cliente" />
+        <button type="button" className="btn btn-small" onClick={() => { window.location.href = `mailto:${encodeURIComponent(mail.trim())}?subject=${encodeURIComponent(`${doc} N° ${folio} - Estación Repostera`)}&body=${encodeURIComponent(text())}`; }}>Correo</button>
+      </div>
+      <button type="button" className="link small" onClick={async () => { try { await navigator.clipboard.writeText(url()); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { prompt("Copia el enlace:", url()); } }}>{copied ? "✓ Enlace copiado" : "Copiar enlace del PDF"}</button>
+      {" · "}<a className="small" href={`/c/${refId}`} target="_blank" rel="noopener">Ver PDF</a>
+    </div>
+  );
 }

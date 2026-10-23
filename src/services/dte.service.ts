@@ -1,6 +1,7 @@
 import { assertCan, can, type Actor } from '../core/permissions/permissions.ts';
 import { validation, businessRule, notFound } from '../core/errors/index.ts';
 import { seal, open } from '../core/crypto/secret-box.ts';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { businessDateOf } from '../core/time/business-date.ts';
 import { openFacturaClient, buildBoleta, buildCreditNoteForBoleta, buildFactura, buildCreditNoteForFactura, medioPagoFor, OpenFacturaError, type HttpCall, type OfEnv, type OfOrg, type Receptor, type NetLine } from '../integrations/openfactura.ts';
 import { normalizeRut } from './settings.service.ts';
@@ -63,7 +64,25 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
   const existing = async (saleId: string) => (await integrations.latestEntry('dte.issue', 'Sale', saleId)) as DteRecord | null;
   const existingNc = async (saleId: string) => (await integrations.latestEntry('dte.void', 'Sale', saleId)) as CreditNoteRecord | null;
 
+  /** Firma del enlace público para compartir el documento (no se puede adivinar ni cambiar de venta). */
+  const sig = (saleId: string) => createHmac('sha256', secret()).update(`share-dte:${saleId}`).digest('base64url').slice(0, 24);
+
   return {
+    /** Enlace para compartir (WhatsApp / correo) el PDF del documento emitido de la venta. null si no hay documento o está anulado. */
+    async shareRef(actor: Actor | null, saleId: string): Promise<{ ref: string; email: string | null } | null> {
+      assertCan(actor, 'dte.issue'); await canSee(actor, String(saleId));
+      if (secret().length < 16) return null;
+      const rec = await existing(String(saleId)); if (!rec || (await existingNc(String(saleId)))) return null;
+      return { ref: `${saleId}.${sig(String(saleId))}`, email: 'receptor' in rec ? rec.receptor.email || null : null };
+    },
+    /** Público (sin sesión), con el enlace firmado: PDF del documento tal como lo emitió Haulmer. */
+    async publicPdf(ref: string): Promise<{ pdf: Buffer; filename: string } | null> {
+      const m = /^([A-Za-z0-9_-]{1,64})\.([A-Za-z0-9_-]{24})$/.exec(String(ref)); if (!m || secret().length < 16) return null;
+      const a = Buffer.from(m[2]); const b = Buffer.from(sig(m[1])); if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+      const rec = await existing(m[1]); const c = await config(); if (!rec || !c) return null;
+      const pdf = await wrap(() => openFacturaClient(c.apiKey, rec.env ?? c.env, call).pdf(rec.token));
+      return { pdf, filename: `${docName(rec.tipo).replace(' ', '-')}-${rec.folio}.pdf` };
+    },
     async status(actor: Actor | null): Promise<{ configured: boolean; env: OfEnv | null; emisor: { rut: string; razonSocial: string } | null; canConfigure: boolean }> {
       assertCan(actor, 'dte.issue'); const c = await config();
       return { configured: !!c, env: c?.env ?? null, emisor: c ? { rut: c.org.rut, razonSocial: c.org.razonSocial } : null, canConfigure: can(actor.role, 'settings.write') };

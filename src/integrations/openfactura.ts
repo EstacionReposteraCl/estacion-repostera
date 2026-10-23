@@ -159,6 +159,12 @@ export function openFacturaClient(apiKey: string, env: OfEnv, call: HttpCall) {
   return {
     async organization(): Promise<OfOrg> { return toOrg(await req('GET', '/organization')); },
     async taxpayer(rut: string): Promise<Receptor | null> { return toTaxpayer(await req('GET', `/taxpayer/${encodeURIComponent(rut.replace(/\./g, ''))}`)); },
+    /** PDF del documento ya emitido (el mismo que ve el cliente en Haulmer). */
+    async pdf(token: string): Promise<Buffer> {
+      const b64 = s(o(await req('GET', `/document/${encodeURIComponent(token)}/pdf`)).pdf);
+      if (!b64) throw new OpenFacturaError('Haulmer no devolvió el PDF del documento.', 200);
+      return Buffer.from(b64, 'base64');
+    },
     async emit(dte: Record<string, unknown>, idempotencyKey: string): Promise<EmitResult> {
       const r = o(await req('POST', '/document', { response: ['FOLIO', 'TIMBRE', 'RESOLUCION'], dte }, { 'Idempotency-Key': idempotencyKey }));
       const folio = Number(r.FOLIO); const token = s(r.TOKEN);
