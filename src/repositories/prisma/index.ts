@@ -283,7 +283,11 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
     async referenceCosts(productIds) {
       const rows = await client.auditLog.findMany({ where: { action: 'product.import', entity: 'Product', entityId: { in: productIds } }, orderBy: { occurredAt: 'asc' }, select: { entityId: true, metadata: true } });
       const out = new Map<string, number>();
-      for (const r of rows) { const c = (r.metadata as { referenceCost?: unknown } | null)?.referenceCost; if (r.entityId && Number.isSafeInteger(c) && (c as number) > 0) out.set(r.entityId, c as number); }
+      for (const r of rows) {
+        const m = r.metadata as { referenceCost?: unknown } | null; const c = m?.referenceCost; if (!r.entityId) continue;
+        if (Number.isSafeInteger(c) && (c as number) > 0) out.set(r.entityId, c as number);
+        else if (m && 'referenceCost' in m && c === null) out.delete(r.entityId);   // null = se quitó el costo de referencia
+      }
       return out;
     },
     async withMovements(branchId, productIds) {
