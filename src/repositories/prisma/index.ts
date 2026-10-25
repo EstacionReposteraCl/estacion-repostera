@@ -123,7 +123,7 @@ function cashOps(db: Db): CashOps {
         FROM audit_logs a LEFT JOIN users u ON u.id = a."userId"
         WHERE a.action = 'cash.close' AND a.after->>'branchId' = ${branchId} AND a.after->>'date' BETWEEN ${f.from} AND ${f.to}
           AND (${f.userId ?? null}::text IS NULL OR a."userId" = ${f.userId ?? null}::text)
-        ORDER BY a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
+        ORDER BY a.after->>'date' DESC, a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
       return rows.map(toRecord);
     },
     async opens(branchId, f) {

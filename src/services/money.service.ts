@@ -66,7 +66,7 @@ export function createMoneyService({ uow, money, catalog, now = () => new Date()
      */
     async cashOutflows(actor: Actor | null, date: string, since: Date | null): Promise<{ total: number; items: { label: string; amount: number }[] }> {
       assertCan(actor, 'money.manage');
-      const after = since ?? new Date(now().getTime() - 36 * 3600_000);
+      const after = since ?? new Date(Math.min(now().getTime() - 36 * 3600_000, Date.parse(date + 'T00:00:00Z') - 24 * 3600_000));
       const [moves, data] = await Promise.all([money.moves(actor.branchId, after), money.data(actor.branchId, after, date)]);
       const items: { label: string; amount: number }[] = [];
       for (const m of moves) {

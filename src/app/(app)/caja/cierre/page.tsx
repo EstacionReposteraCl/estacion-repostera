@@ -16,7 +16,7 @@ function DiffPill({ diff }: { diff: number }) {
   return <span className={`pill ${diff === 0 ? "pill-ok" : "pill-warn"}`}>{diff === 0 ? "Cuadra" : diff > 0 ? `Sobra ${peso(diff)}` : `Falta ${peso(-diff)}`}</span>;
 }
 
-export default async function CashClosePage({ searchParams }: { searchParams: Promise<{ ver?: string; fecha?: string; desde?: string; hasta?: string }> }) {
+export default async function CashClosePage({ searchParams }: { searchParams: Promise<{ ver?: string; fecha?: string; desde?: string; hasta?: string; dia?: string }> }) {
   const { actor } = await requireActor();
   const sp = await searchParams;
   const today = await services.cash.today(actor);
@@ -40,6 +40,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
             <div className="rc-doc">CIERRE DE CAJA N° {r.seq}</div>
             <div>{dmy(r.date)} · {hm(r.at)}</div>
             <div>Cerrado por: {r.userName}</div>
+            {"late" in r && r.late && <div>(registrado después, el {dmy(new Date(r.at).toISOString().slice(0, 10))})</div>}
             {isFull(r) && <div>Desde: {r.periodFrom ? `cierre anterior (${hm(new Date(r.periodFrom))})` : "inicio del día"}</div>}
             {isFull(r) && (r.openedBy ? <div>Abrió: {r.openedBy}{r.openedAt ? ` · ${hm(new Date(r.openedAt))}` : ""}</div> : <div>(sin apertura registrada)</div>)}
           </header>
@@ -73,9 +74,25 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
     );
   }
 
+  // --- cierre de un día anterior que quedó sin cerrar (solo administrador) ---
+  if (sp.dia && iso(sp.dia)) {
+    const ds = await services.cash.dayStatus(actor, sp.dia);
+    const out = await services.money.cashOutflows(actor, ds.date, null).catch(() => null);
+    return (
+      <main className="page">
+        <div className="pagehead"><h1>Cierre de caja</h1><Link className="btn" href="/caja/cierre">Volver</Link></div>
+        {ds.closed ? <p className="ok">Ese día ya tiene cierre registrado. Míralo en el historial.</p> : (<>
+          <p className="muted" style={{ marginTop: -6, maxWidth: 760 }}>{ds.open ? <>Ese día la caja se abrió con <b>{peso(ds.open.float)}</b>{ds.open.userName ? ` (${ds.open.userName})` : ""}.</> : "Ese día no se registró apertura: escribe con cuánto partió la caja."} Ventas del día: <b>{ds.summary.salesCount}</b>. Escribe lo que había en la caja al final de ese día (o lo que contaste al abrir el día siguiente).</p>
+          <CashCloseForm key={ds.date} day={ds.date} review suggestedFloat={ds.open?.float ?? 0} cashSales={ds.summary.cash} openFloat={ds.open?.float ?? null} sales={{ total: ds.summary.total, count: ds.summary.salesCount, byMethod: ds.summary.byMethod }} methods={[]} cashOut={out && out.items.length ? out : null} />
+        </>)}
+      </main>
+    );
+  }
+
   // --- formulario + historial ---
   const st = await services.cash.status(actor);
-  const out = st.review ? await services.money.cashOutflows(actor, st.date, st.since).catch(() => null) : null;   // pagos/retiros con efectivo ya registrados
+  const out = st.review ? await services.money.cashOutflows(actor, st.date, st.since).catch(() => null) : null;
+  const pending = st.review ? await services.cash.pendingDays(actor).catch(() => []) : [];   // pagos/retiros con efectivo ya registrados
   const from = st.review ? (iso(sp.desde) ?? today) : today; const to = st.review ? (iso(sp.hasta) ?? today) : today;
   const h = await services.cash.history(actor, st.review ? { from: from <= to ? from : to, to: from <= to ? to : from } : undefined);
   return (
@@ -83,6 +100,12 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
       <div className="pagehead"><h1>Cierre de caja</h1></div>
       <p className="muted" style={{ marginTop: -6 }}>{dmy(st.date)} · {st.since ? `Turno desde el último cierre (${hm(st.since)})` : "Desde el inicio del día"}{st.closesToday > 0 ? ` · ${st.closesToday} cierre(s) hoy` : ""}</p>
 
+      {pending.length > 0 && (
+        <div className="tile" style={{ maxWidth: 760, marginBottom: 12 }}>
+          <b>Días sin cierre:</b> {pending.map((d, i) => <span key={d.date}>{i > 0 ? " · " : " "}<Link href={`/caja/cierre?dia=${d.date}`}>{dmy(d.date)}</Link></span>)}
+          <div className="muted small">Por si un día no se pudo cerrar: entra al día y registra su cierre.</div>
+        </div>
+      )}
       <p className="muted" style={{ marginTop: -10 }}>Ventas registradas en este turno: <b>{st.salesCount}</b>{st.review && st.summary && st.summary.voidedCount > 0 ? ` · ${st.summary.voidedCount} anulada(s) no cuentan` : ""}</p>
 
       {st.open ? (
@@ -107,7 +130,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
           <tbody>{(h.rows as (CashCloseRecord | BlindClose)[]).map((r) => (
             <tr key={r.id}><td>{dmy(r.date)} {hm(r.at)}<div className="muted small">N° {r.seq}</div></td><td>{r.userName}{isFull(r) && r.role === "VENDEDOR" && <div className="muted small">vendedor</div>}</td>
               <td className="num">{r.salesCount}</td>{isFull(r) && <td className="num">{peso(r.expectedCash)}</td>}<td className="num">{peso(r.counted)}</td>
-              {isFull(r) && <td><DiffPill diff={r.diff} />{r.withoutOpen === false && r.openedBy ? <div className="muted small">abrió {r.openedBy}</div> : null}{r.note && <div className="muted small">{r.note}</div>}</td>}
+              {isFull(r) && <td><DiffPill diff={r.diff} />{r.withoutOpen === false && r.openedBy ? <div className="muted small">abrió {r.openedBy}</div> : null}{r.note && <div className="muted small">{r.note}</div>}{r.late && <div className="muted small">registrado después</div>}</td>}
               <td><Link href={`/caja/cierre?ver=${encodeURIComponent(r.id)}&fecha=${r.date}`}>Ver / imprimir</Link></td></tr>))}</tbody>
         </table></div>
       )}

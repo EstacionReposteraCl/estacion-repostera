@@ -193,6 +193,8 @@ export interface CashCloseRecord {
   openId?: string | null; openedBy?: string | null; openedAt?: string | null; withoutOpen?: boolean;
   /** Montos declarados por quien cierra para los otros medios (p. ej. total del cierre de la máquina TUU), por código de medio. */
   declared?: Record<string, Peso> | null;
+  /** true = cierre de un día anterior registrado después (el día no se cerró a tiempo). */
+  late?: boolean;
   /** Efectivo que se sacó de la caja al cerrar (p. ej. el retiro semanal de los lunes). Queda en caja: counted − takeOut. */
   takeOut?: Peso;
 }

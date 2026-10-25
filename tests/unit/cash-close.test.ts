@@ -116,3 +116,19 @@ test('caja sin cerrar el día anterior: al día siguiente sugiere el fondo de es
   const st = await svc.cash.status(admin);
   assert.equal(st.open, null); assert.equal(st.suggestedFloat, 48850 + 8290);
 });
+
+test('cierre de un día anterior sin cerrar: aparece pendiente, se registra con su fecha (solo admin) y no se repite', async () => {
+  const { db, svc, setClock } = setup();
+  db.cashSales.length = 0;
+  setClock(T('09:00')); await svc.cash.open(admin, { float: 43730 });
+  db.cashSales.push({ date: '2026-10-07', at: T('11:00'), total: 3580, payments: [{ code: 'CASH', name: 'Efectivo', amount: 3580 }] });
+  setClock(new Date('2026-10-09T10:00:00-03:00'));
+  assert.deepEqual(await svc.cash.pendingDays(admin), [{ date: '2026-10-07', float: 43730 }]);
+  await assert.rejects(svc.cash.closeDay(s1, '2026-10-07', { counted: 1 }));
+  await assert.rejects(svc.cash.closeDay(admin, '2026-10-09', { counted: 1 }), /anterior a hoy/);
+  const ds = await svc.cash.dayStatus(admin, '2026-10-07'); assert.equal(ds.open?.float, 43730); assert.equal(ds.summary.cash, 3580);
+  const r = await svc.cash.closeDay(admin, '2026-10-07', { counted: 47310 });
+  assert.equal(r.date, '2026-10-07'); assert.equal(r.expectedCash, 47310); assert.equal(r.diff, 0); assert.equal(r.late, true);
+  assert.deepEqual(await svc.cash.pendingDays(admin), []);
+  await assert.rejects(svc.cash.closeDay(admin, '2026-10-07', { counted: 1 }), /ya tiene cierre/);
+});

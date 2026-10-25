@@ -18,7 +18,7 @@ const Diff = ({ d }: { d: number }) => <span className={`pill ${d === 0 ? "pill-
  * (débito, crédito, transferencia, Mercado Pago, Rappi) declarados vs. lo registrado en el sistema.
  * review = administrador: ve lo del sistema y las diferencias. Vendedor: arqueo a ciegas (solo escribe lo que cuenta).
  */
-export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sales = null, methods = [], cashOut = null }: { review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null; sales?: { total: number; count: number; byMethod: Method[] } | null; methods?: Method[]; cashOut?: { total: number; items: { label: string; amount: number }[] } | null }) {
+export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sales = null, methods = [], cashOut = null, day = null }: { day?: string | null; review: boolean; suggestedFloat: number; cashSales: number | null; openFloat: number | null; sales?: { total: number; count: number; byMethod: Method[] } | null; methods?: Method[]; cashOut?: { total: number; items: { label: string; amount: number }[] } | null }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
   const [v, setV] = useState({ float: (openFloat ?? suggestedFloat) ? (openFloat ?? suggestedFloat).toLocaleString("es-CL") : "", withdrawals: cashOut && cashOut.total > 0 ? cashOut.total.toLocaleString("es-CL") : "", counted: "", note: "", takeOut: "" });
   const [dec, setDec] = useState<Record<string, string>>({});
@@ -32,18 +32,18 @@ export function CashCloseForm({ review, suggestedFloat, cashSales, openFloat, sa
   const diff = expected !== null && c !== null ? c - expected : null;
   function submit() {
     if (!ok) return;
-    if (!confirm(review ? "¿Cerrar la caja y generar el comprobante?" : "¿Cerrar la caja? Revisa que los montos estén correctos: no se pueden modificar después.")) return;
+    if (!confirm(day ? `¿Registrar el cierre del ${day.split("-").reverse().join("-")}?` : review ? "¿Cerrar la caja y generar el comprobante?" : "¿Cerrar la caja? Revisa que los montos estén correctos: no se pueden modificar después.")) return;
     setErr(null);
     const declared = Object.fromEntries(Object.entries(decVals).filter(([, x]) => typeof x === "number")) as Record<string, number>;
     start(async () => {
-      const r = await closeCashAction({ float: f!, counted: c!, withdrawals: w!, note: v.note, declared, takeOut: t ?? 0 });
+      const r = await closeCashAction({ float: f!, counted: c!, withdrawals: w!, note: v.note, declared, takeOut: t ?? 0, ...(day ? { day } : {}) });
       if (r.ok) router.push(`/caja/cierre?ver=${encodeURIComponent(r.id)}&fecha=${r.date}`); else setErr(r.error);
     });
   }
   const bad = (x: number | null | undefined, s: string) => (s.trim() && x === null ? <span className="out small">monto inválido</span> : null);
   return (
     <div className="formcard arqueo" style={{ maxWidth: 760 }}>
-      <h2 className="sect" style={{ marginTop: 0 }}>Arqueo y cierre de caja</h2>
+      <h2 className="sect" style={{ marginTop: 0 }}>{day ? `Cierre del ${day.split("-").reverse().join("-")} (registrado después)` : "Arqueo y cierre de caja"}</h2>
       <ol className="arqueo-pasos">
         <li>Cuenta los billetes y monedas de la caja.</li>
         {others.length > 0 && <li>Anota los totales de débito y crédito del <b>cierre de la máquina TUU</b>.</li>}

@@ -44,7 +44,8 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
       let left = lastEver[0] ? lastEver[0].counted - (lastEver[0].takeOut ?? 0) : null;      // lo que quedó en la caja al último cierre
       // Si un día anterior se abrió la caja y no se cerró: fondo de esa apertura + efectivo vendido en ese turno.
       const prevOpen = (await cash.opens(actor.branchId, { from: '2000-01-01', to: date, limit: 1 }))[0];
-      if (prevOpen && prevOpen.date < date && (!lastEver[0] || prevOpen.at > lastEver[0].at)) {
+      const le = lastEver[0];
+      if (prevOpen && prevOpen.date < date && (!le || prevOpen.date > le.date || (prevOpen.date === le.date && prevOpen.at > le.at))) {
         const s = await cash.summary(actor.branchId, prevOpen.date, (await cash.lastClose(actor.branchId, prevOpen.date))?.at ?? null, CLOSE_METHODS);
         left = prevOpen.float + s.cash;
       }
@@ -68,6 +69,48 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
       });
       const o = await currentOpen(cash, actor.branchId, date);
       return o ?? { id: '', at: now(), userId: actor.userId, userName: actor.email, branchId: actor.branchId, date, float, note: note || null };
+    },
+
+    /** Administrador: días anteriores (últimos 30) con la caja abierta y sin cierre. */
+    async pendingDays(actor: Actor | null): Promise<{ date: string; float: number }[]> {
+      assertCan(actor, 'cash.review');
+      const date = await today(); const from = new Date(Date.parse(date + 'T12:00:00Z') - 30 * 86400e3).toISOString().slice(0, 10);
+      const [opens, closes] = await Promise.all([cash.opens(actor.branchId, { from, to: date, limit: 200 }), cash.closes(actor.branchId, { from, to: date, limit: 500 })]);
+      const closed = new Set(closes.map((c) => c.date)); const seen = new Set<string>(); const out: { date: string; float: number }[] = [];
+      for (const o of opens) if (o.date < date && !closed.has(o.date) && !seen.has(o.date)) { seen.add(o.date); out.push({ date: o.date, float: o.float }); }
+      return out.sort((a, b) => b.date.localeCompare(a.date));
+    },
+    /** Administrador: lo que necesita el formulario para cerrar un día anterior que quedó sin cierre. */
+    async dayStatus(actor: Actor | null, day: string): Promise<{ date: string; open: CashOpenRecord | null; summary: CashSummary; closed: boolean }> {
+      assertCan(actor, 'cash.review');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day >= await today()) throw validation('Elige un día anterior a hoy.');
+      const [o, c, summary] = await Promise.all([cash.opens(actor.branchId, { from: day, to: day, limit: 1 }), cash.lastClose(actor.branchId, day), cash.summary(actor.branchId, day, null, CLOSE_METHODS)]);
+      return { date: day, open: o[0] ?? null, summary, closed: !!c };
+    },
+    /** Administrador: registra el cierre de un día anterior que no se cerró (queda marcado como "registrado después"). */
+    async closeDay(actor: Actor | null, day: string, i: CloseInput): Promise<CashCloseRecord> {
+      assertCan(actor, 'cash.review');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day >= await today()) throw validation('Elige un día anterior a hoy.');
+      const inputFloat = money(i.float ?? 0, 'Fondo inicial'); const counted = money(i.counted, 'Efectivo contado'); const withdrawals = money(i.withdrawals ?? 0, 'Retiros');
+      const takeOut = money(i.takeOut ?? 0, 'Efectivo retirado'); if (takeOut > counted) throw validation('No puedes retirar más efectivo del que contaste.');
+      const note = (i.note ?? '').trim(); if (note.length > 300) throw validation('Nota: máximo 300 caracteres.');
+      const rec = await uow.run(async (tx) => {
+        await tx.cash.lock(actor.branchId, day);
+        if (await tx.cash.lastClose(actor.branchId, day)) throw businessRule('Ese día ya tiene cierre registrado.');
+        const open = (await tx.cash.opens(actor.branchId, { from: day, to: day, limit: 1 }))[0] ?? null;
+        const float = open ? open.float : inputFloat;
+        const s = await tx.cash.summary(actor.branchId, day, null, CLOSE_METHODS);
+        const expectedCash = float + s.cash - withdrawals; const diff = counted - expectedCash;
+        const declared: Record<string, number> = {};
+        for (const m of s.byMethod) { if (m.code === 'CASH') continue; const v = i.declared?.[m.code]; if (v !== undefined && v !== null) declared[m.code] = money(v, m.name); }
+        const after = { branchId: actor.branchId, date: day, seq: 1, periodFrom: null, role: actor.role, float, counted, withdrawals, expectedCash, diff,
+          salesCount: s.salesCount, total: s.total, byMethod: s.byMethod, voidedCount: s.voidedCount, note: note || null, closedAt: now().toISOString(),
+          openId: open?.id ?? null, openedBy: open?.userName ?? null, openedAt: open ? open.at.toISOString() : null, withoutOpen: !open, declared: Object.keys(declared).length ? declared : null, takeOut, late: true };
+        await tx.audit.write({ action: 'cash.close', entity: 'CashClose', entityId: `${day}#1`, userId: actor.userId, after });
+        return after;
+      });
+      const saved = (await cash.closes(actor.branchId, { from: day, to: day, limit: 5 })).find((r) => r.seq === rec.seq);
+      return saved ?? { ...rec, id: `${day}#1`, at: new Date(rec.closedAt), userId: actor.userId, userName: actor.email };
     },
 
     async close(actor: Actor | null, i: CloseInput): Promise<CashCloseRecord | BlindClose> {
