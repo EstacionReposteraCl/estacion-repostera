@@ -130,6 +130,14 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
      * Administrador: corrige un cierre ya registrado (p. ej. el fondo inicial incluía una venta que después se anuló).
      * No borra nada: agrega 'cash.close.fix' y el cierre se recalcula (esperado = fondo + efectivo − retiros).
      */
+    /** Administrador: deja sin efecto un cierre de HOY hecho por error (no se borra: queda 'cash.close.void' en la bitácora). */
+    async voidClose(actor: Actor | null, closeId: string, reason: string): Promise<void> {
+      assertCan(actor, 'cash.review');
+      const r = String(reason ?? '').trim(); if (r.length < 5) throw validation('Indica el motivo.');
+      const date = await today(); const c = (await cash.closes(actor.branchId, { from: date, to: date, limit: 500 })).find((x) => x.id === closeId);
+      if (!c) throw validation('Solo se puede quitar un cierre de hoy.');
+      await uow.run((tx) => tx.audit.write({ action: 'cash.close.void', entity: 'CashClose', entityId: closeId, userId: actor.userId, before: { date: c.date, seq: c.seq, counted: c.counted }, metadata: { reason: r } }));
+    },
     /** Administrador: corrige el fondo de la apertura vigente de hoy (p. ej. quedó mal por ventas atrasadas del día anterior). */
     async fixOpenFloat(actor: Actor | null, float: number, reason: string): Promise<CashOpenRecord> {
       assertCan(actor, 'cash.review');

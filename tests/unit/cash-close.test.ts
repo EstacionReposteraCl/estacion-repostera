@@ -165,3 +165,13 @@ test('día anterior sin apertura ni cierre: se registran los dos', async () => {
   await assert.rejects(svc.cash.openDay(admin, '2026-10-08', { float: 1 }), /ya tiene apertura/);
   const c = await svc.cash.closeDay(admin, '2026-10-08', { counted: 53280 }); assert.equal(c.float, 53280); assert.equal(c.diff, 0); assert.equal(c.withoutOpen, false);
 });
+
+test('quitar un cierre de hoy hecho por error: deja de contar y la caja sigue abierta', async () => {
+  const { svc, setClock } = setup();
+  setClock(T('09:00')); await svc.cash.open(admin, { float: 1000 });
+  setClock(T('10:00')); const c = await svc.cash.close(admin, { counted: 1000 }) as CashCloseRecord;
+  await svc.cash.open(admin, { float: 1000 });
+  await assert.rejects(svc.cash.voidClose(s1, c.id, 'por error'));
+  await svc.cash.voidClose(admin, c.id, 'Cierre hecho por error');
+  const st = await svc.cash.status(admin); assert.equal(st.closesToday, 0); assert.equal(st.since, null); assert.ok(st.open);
+});

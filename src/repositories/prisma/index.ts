@@ -122,6 +122,7 @@ function cashOps(db: Db): CashOps {
         SELECT a.id, a."occurredAt" AS at, a."userId", u.name AS "userName", a.after
         FROM audit_logs a LEFT JOIN users u ON u.id = a."userId"
         WHERE a.action = 'cash.close' AND a.after->>'branchId' = ${branchId} AND a.after->>'date' BETWEEN ${f.from} AND ${f.to}
+          AND NOT EXISTS (SELECT 1 FROM audit_logs v WHERE v.action = 'cash.close.void' AND v."entityId" = a.id)
           AND (${f.userId ?? null}::text IS NULL OR a."userId" = ${f.userId ?? null}::text)
         ORDER BY a.after->>'date' DESC, a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
       if (rows.length === 0) return [];
