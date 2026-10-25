@@ -195,6 +195,8 @@ export interface CashCloseRecord {
   declared?: Record<string, Peso> | null;
   /** true = cierre de un día anterior registrado después (el día no se cerró a tiempo). */
   late?: boolean;
+  /** Corrección posterior (fondo/contado mal ingresados): queda en la bitácora como 'cash.close.fix'. */
+  fixed?: { at: string; reason: string } | null;
   /** Efectivo que se sacó de la caja al cerrar (p. ej. el retiro semanal de los lunes). Queda en caja: counted − takeOut. */
   takeOut?: Peso;
 }

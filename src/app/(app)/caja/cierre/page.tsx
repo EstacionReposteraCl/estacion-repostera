@@ -130,7 +130,7 @@ export default async function CashClosePage({ searchParams }: { searchParams: Pr
           <tbody>{(h.rows as (CashCloseRecord | BlindClose)[]).map((r) => (
             <tr key={r.id}><td>{dmy(r.date)} {hm(r.at)}<div className="muted small">N° {r.seq}</div></td><td>{r.userName}{isFull(r) && r.role === "VENDEDOR" && <div className="muted small">vendedor</div>}</td>
               <td className="num">{r.salesCount}</td>{isFull(r) && <td className="num">{peso(r.expectedCash)}</td>}<td className="num">{peso(r.counted)}</td>
-              {isFull(r) && <td><DiffPill diff={r.diff} />{r.withoutOpen === false && r.openedBy ? <div className="muted small">abrió {r.openedBy}</div> : null}{r.note && <div className="muted small">{r.note}</div>}{r.late && <div className="muted small">registrado después</div>}</td>}
+              {isFull(r) && <td><DiffPill diff={r.diff} />{r.withoutOpen === false && r.openedBy ? <div className="muted small">abrió {r.openedBy}</div> : null}{r.note && <div className="muted small">{r.note}</div>}{r.late && <div className="muted small">registrado después</div>}{r.fixed && <div className="muted small">corregido</div>}</td>}
               <td><Link href={`/caja/cierre?ver=${encodeURIComponent(r.id)}&fecha=${r.date}`}>Ver / imprimir</Link></td></tr>))}</tbody>
         </table></div>
       )}

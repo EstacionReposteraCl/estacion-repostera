@@ -113,6 +113,25 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
       return saved ?? { ...rec, id: `${day}#1`, at: new Date(rec.closedAt), userId: actor.userId, userName: actor.email };
     },
 
+    /**
+     * Administrador: corrige un cierre ya registrado (p. ej. el fondo inicial incluía una venta que después se anuló).
+     * No borra nada: agrega 'cash.close.fix' y el cierre se recalcula (esperado = fondo + efectivo − retiros).
+     */
+    async fixClose(actor: Actor | null, closeId: string, i: { float?: number; counted?: number; reason: string }): Promise<CashCloseRecord> {
+      assertCan(actor, 'cash.review');
+      const reason = String(i.reason ?? '').trim(); if (reason.length < 5) throw validation('Indica el motivo de la corrección.');
+      const all = await cash.closes(actor.branchId, { from: '2000-01-01', to: await today(), limit: 2000 });
+      const r = all.find((x) => x.id === closeId); if (!r) throw validation('Cierre no encontrado.');
+      const float = i.float === undefined ? r.float : money(i.float, 'Fondo inicial'); const counted = i.counted === undefined ? r.counted : money(i.counted, 'Efectivo contado');
+      const cashSales = r.byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0);
+      const expectedCash = float + cashSales - r.withdrawals; const diff = counted - expectedCash;
+      if ((r.takeOut ?? 0) > counted) throw validation('El efectivo retirado al cerrar supera lo contado.');
+      await uow.run((tx) => tx.audit.write({ action: 'cash.close.fix', entity: 'CashClose', entityId: closeId, userId: actor.userId,
+        before: { float: r.float, counted: r.counted, expectedCash: r.expectedCash, diff: r.diff, note: r.note },
+        after: { float, counted, expectedCash, diff, note: reason, fixed: { at: now().toISOString(), reason } } }));
+      return { ...r, float, counted, expectedCash, diff, note: reason, fixed: { at: now().toISOString(), reason } };
+    },
+
     async close(actor: Actor | null, i: CloseInput): Promise<CashCloseRecord | BlindClose> {
       assertCan(actor, 'cash.close');
       const inputFloat = money(i.float ?? 0, 'Fondo inicial'); const counted = money(i.counted, 'Efectivo contado'); const withdrawals = money(i.withdrawals ?? 0, 'Retiros');

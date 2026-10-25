@@ -127,7 +127,8 @@ export class FakeDb implements State {
     },
     lastClose: async (b, date) => (await this.cashOps.closes(b, { from: date, to: date, limit: 1 }))[0] ?? null,
     closes: async (b, f) => this.audit.map((e, i) => ({ e, i })).filter(({ e }) => e.action === 'cash.close').map(({ e, i }) => {
-      const a = e.after as Omit<CashCloseRecord, 'id' | 'at' | 'userId' | 'userName'> & { closedAt: string };
+      const fix = this.audit.filter((x) => x.action === 'cash.close.fix' && x.entityId === `cc${i}`).pop();
+      const a = { ...(e.after as object), ...((fix?.after as object) ?? {}) } as Omit<CashCloseRecord, 'id' | 'at' | 'userId' | 'userName'> & { closedAt: string };
       return { ...a, id: `cc${i}`, at: new Date(a.closedAt), userId: e.userId, userName: e.userId } as CashCloseRecord;
     }).filter((r) => r.branchId === b && r.date >= f.from && r.date <= f.to && (!f.userId || r.userId === f.userId)).reverse().sort((x, y) => y.date.localeCompare(x.date)).slice(0, f.limit),
     opens: async (b, f) => this.audit.map((e, i) => ({ e, i })).filter(({ e }) => e.action === 'cash.open').map(({ e, i }) => {

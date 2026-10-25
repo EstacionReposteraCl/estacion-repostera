@@ -132,3 +132,15 @@ test('cierre de un día anterior sin cerrar: aparece pendiente, se registra con 
   assert.deepEqual(await svc.cash.pendingDays(admin), []);
   await assert.rejects(svc.cash.closeDay(admin, '2026-10-07', { counted: 1 }), /ya tiene cierre/);
 });
+
+test('corregir un cierre: queda auditado y se recalcula esperado y diferencia (solo admin)', async () => {
+  const { svc, setClock } = setup();
+  setClock(T('14:00')); const r = await svc.cash.close(admin, { float: 52200, counted: 47310 }) as CashCloseRecord;
+  assert.equal(r.diff, 47310 - (52200 + r.byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0)));
+  await assert.rejects(svc.cash.fixClose(s1, r.id, { float: 47310, reason: 'ajuste venta anulada' }));
+  await assert.rejects(svc.cash.fixClose(admin, r.id, { float: 47310, reason: '' }), /motivo/);
+  const f = await svc.cash.fixClose(admin, r.id, { float: 47310 - r.byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0), reason: 'Fondo incluía venta anulada' });
+  assert.equal(f.diff, 0);
+  const h = await svc.cash.history(admin) as { rows: CashCloseRecord[] }; const again = h.rows.find((x) => x.id === r.id)!;
+  assert.equal(again.diff, 0); assert.equal(again.note, 'Fondo incluía venta anulada'); assert.ok(again.fixed);
+});

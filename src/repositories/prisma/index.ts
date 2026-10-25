@@ -124,7 +124,13 @@ function cashOps(db: Db): CashOps {
         WHERE a.action = 'cash.close' AND a.after->>'branchId' = ${branchId} AND a.after->>'date' BETWEEN ${f.from} AND ${f.to}
           AND (${f.userId ?? null}::text IS NULL OR a."userId" = ${f.userId ?? null}::text)
         ORDER BY a.after->>'date' DESC, a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
-      return rows.map(toRecord);
+      if (rows.length === 0) return [];
+      // Correcciones (action 'cash.close.fix', entityId = id del cierre): la última corrección reemplaza fondo/esperado/contado/diferencia/nota.
+      const fixes = await db.$queryRaw<{ entityId: string; after: Record<string, unknown> }[]>`
+        SELECT DISTINCT ON (a."entityId") a."entityId", a.after FROM audit_logs a
+        WHERE a.action = 'cash.close.fix' AND a."entityId" = ANY(${rows.map((r) => r.id)}::text[]) ORDER BY a."entityId", a."occurredAt" DESC, a.id DESC`;
+      const fx = new Map(fixes.map((x) => [x.entityId, x.after]));
+      return rows.map((r) => toRecord(fx.has(r.id) ? { ...r, after: { ...r.after, ...fx.get(r.id) } } : r));
     },
     async opens(branchId, f) {
       const rows = await db.$queryRaw<{ id: string; at: Date; userId: string; userName: string | null; after: Record<string, unknown> }[]>`
