@@ -157,3 +157,11 @@ test('ventas atrasadas después del cierre: se relee el día y se corrige el fon
   await svc.cash.fixOpenFloat(admin, 53280, 'Venta atrasada del día anterior');
   const st = await svc.cash.status(admin); assert.equal(st.open?.float, 53280); assert.equal(st.suggestedFloat, 53280);
 });
+
+test('día anterior sin apertura ni cierre: se registran los dos', async () => {
+  const { db, svc, setClock } = setup(); db.cashSales.length = 0;
+  setClock(new Date('2026-10-09T10:00:00-03:00'));
+  const o = await svc.cash.openDay(admin, '2026-10-08', { float: 53280 }); assert.equal(o.float, 53280);
+  await assert.rejects(svc.cash.openDay(admin, '2026-10-08', { float: 1 }), /ya tiene apertura/);
+  const c = await svc.cash.closeDay(admin, '2026-10-08', { counted: 53280 }); assert.equal(c.float, 53280); assert.equal(c.diff, 0); assert.equal(c.withoutOpen, false);
+});

@@ -87,6 +87,19 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
       const [o, c, summary] = await Promise.all([cash.opens(actor.branchId, { from: day, to: day, limit: 1 }), cash.lastClose(actor.branchId, day), cash.summary(actor.branchId, day, null, CLOSE_METHODS)]);
       return { date: day, open: o[0] ?? null, summary, closed: !!c };
     },
+    /** Administrador: registra la apertura de un día anterior que no se abrió en el sistema (queda marcada como registrada después). */
+    async openDay(actor: Actor | null, day: string, i: { float: number; note?: string | null }): Promise<CashOpenRecord> {
+      assertCan(actor, 'cash.review');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day >= await today()) throw validation('Elige un día anterior a hoy.');
+      const float = money(i.float, 'Fondo inicial'); const note = (i.note ?? '').trim(); if (note.length > 300) throw validation('Nota: máximo 300 caracteres.');
+      await uow.run(async (tx) => {
+        await tx.cash.lock(actor.branchId, day);
+        if ((await tx.cash.opens(actor.branchId, { from: day, to: day, limit: 1 })).length) throw businessRule('Ese día ya tiene apertura.');
+        if (await tx.cash.lastClose(actor.branchId, day)) throw businessRule('Ese día ya tiene cierre.');
+        await tx.audit.write({ action: 'cash.open', entity: 'CashOpen', entityId: `${day}#open`, userId: actor.userId, after: { branchId: actor.branchId, date: day, float, note: note || null, openedAt: now().toISOString(), late: true } });
+      });
+      return (await cash.opens(actor.branchId, { from: day, to: day, limit: 1 }))[0];
+    },
     /** Administrador: registra el cierre de un día anterior que no se cerró (queda marcado como "registrado después"). */
     async closeDay(actor: Actor | null, day: string, i: CloseInput): Promise<CashCloseRecord> {
       assertCan(actor, 'cash.review');
