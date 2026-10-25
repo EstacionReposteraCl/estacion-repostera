@@ -117,19 +117,34 @@ export function createCashService({ uow, cash, catalog, now = () => new Date() }
      * Administrador: corrige un cierre ya registrado (p. ej. el fondo inicial incluía una venta que después se anuló).
      * No borra nada: agrega 'cash.close.fix' y el cierre se recalcula (esperado = fondo + efectivo − retiros).
      */
-    async fixClose(actor: Actor | null, closeId: string, i: { float?: number; counted?: number; reason: string }): Promise<CashCloseRecord> {
+    /** Administrador: corrige el fondo de la apertura vigente de hoy (p. ej. quedó mal por ventas atrasadas del día anterior). */
+    async fixOpenFloat(actor: Actor | null, float: number, reason: string): Promise<CashOpenRecord> {
+      assertCan(actor, 'cash.review');
+      const r = String(reason ?? '').trim(); if (r.length < 5) throw validation('Indica el motivo de la corrección.');
+      const f = money(float, 'Fondo inicial'); const date = await today();
+      const open = await currentOpen(cash, actor.branchId, date); if (!open) throw businessRule('La caja no está abierta hoy.');
+      await uow.run((tx) => tx.audit.write({ action: 'cash.open.fix', entity: 'CashOpen', entityId: open.id, userId: actor.userId, before: { float: open.float }, after: { float: f, note: r } }));
+      return { ...open, float: f, note: r };
+    },
+    /** `refreshSales`: vuelve a leer las ventas del día (sirve si después del cierre se registraron ventas atrasadas de ese día). */
+    async fixClose(actor: Actor | null, closeId: string, i: { float?: number; counted?: number; reason: string; refreshSales?: boolean }): Promise<CashCloseRecord> {
       assertCan(actor, 'cash.review');
       const reason = String(i.reason ?? '').trim(); if (reason.length < 5) throw validation('Indica el motivo de la corrección.');
       const all = await cash.closes(actor.branchId, { from: '2000-01-01', to: await today(), limit: 2000 });
       const r = all.find((x) => x.id === closeId); if (!r) throw validation('Cierre no encontrado.');
       const float = i.float === undefined ? r.float : money(i.float, 'Fondo inicial'); const counted = i.counted === undefined ? r.counted : money(i.counted, 'Efectivo contado');
-      const cashSales = r.byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0);
+      let sales: Pick<CashCloseRecord, 'byMethod' | 'salesCount' | 'total' | 'voidedCount'> = { byMethod: r.byMethod, salesCount: r.salesCount, total: r.total, voidedCount: r.voidedCount };
+      if (i.refreshSales) {
+        if (all.some((x) => x.date === r.date && x.id !== r.id)) throw businessRule('Ese día tiene más de un cierre: no se pueden volver a leer sus ventas.');
+        const s = await cash.summary(actor.branchId, r.date, null, CLOSE_METHODS); sales = { byMethod: s.byMethod, salesCount: s.salesCount, total: s.total, voidedCount: s.voidedCount };
+      }
+      const cashSales = sales.byMethod.filter((m) => m.code === 'CASH').reduce((a, m) => a + m.amount, 0);
       const expectedCash = float + cashSales - r.withdrawals; const diff = counted - expectedCash;
       if ((r.takeOut ?? 0) > counted) throw validation('El efectivo retirado al cerrar supera lo contado.');
       await uow.run((tx) => tx.audit.write({ action: 'cash.close.fix', entity: 'CashClose', entityId: closeId, userId: actor.userId,
-        before: { float: r.float, counted: r.counted, expectedCash: r.expectedCash, diff: r.diff, note: r.note },
-        after: { float, counted, expectedCash, diff, note: reason, fixed: { at: now().toISOString(), reason } } }));
-      return { ...r, float, counted, expectedCash, diff, note: reason, fixed: { at: now().toISOString(), reason } };
+        before: { float: r.float, counted: r.counted, expectedCash: r.expectedCash, diff: r.diff, note: r.note, salesCount: r.salesCount, total: r.total },
+        after: { float, counted, expectedCash, diff, note: reason, ...sales, fixed: { at: now().toISOString(), reason } } }));
+      return { ...r, ...sales, float, counted, expectedCash, diff, note: reason, fixed: { at: now().toISOString(), reason } };
     },
 
     async close(actor: Actor | null, i: CloseInput): Promise<CashCloseRecord | BlindClose> {

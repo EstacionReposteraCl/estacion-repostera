@@ -138,7 +138,13 @@ function cashOps(db: Db): CashOps {
         FROM audit_logs a LEFT JOIN users u ON u.id = a."userId"
         WHERE a.action = 'cash.open' AND a.after->>'branchId' = ${branchId} AND a.after->>'date' BETWEEN ${f.from} AND ${f.to}
         ORDER BY a."occurredAt" DESC, a.id DESC LIMIT ${f.limit}`;
-      return rows.map((r): CashOpenRecord => ({ ...(r.after as unknown as Omit<CashOpenRecord, 'id' | 'at' | 'userId' | 'userName'>), id: r.id, at: r.at, userId: r.userId, userName: r.userName ?? '—' }));
+      if (rows.length === 0) return [];
+      // Correcciones del fondo de apertura ('cash.open.fix', entityId = id de la apertura): la última manda.
+      const fixes = await db.$queryRaw<{ entityId: string; after: Record<string, unknown> }[]>`
+        SELECT DISTINCT ON (a."entityId") a."entityId", a.after FROM audit_logs a
+        WHERE a.action = 'cash.open.fix' AND a."entityId" = ANY(${rows.map((r) => r.id)}::text[]) ORDER BY a."entityId", a."occurredAt" DESC, a.id DESC`;
+      const fx = new Map(fixes.map((x) => [x.entityId, x.after]));
+      return rows.map((r): CashOpenRecord => ({ ...(r.after as unknown as Omit<CashOpenRecord, 'id' | 'at' | 'userId' | 'userName'>), ...((fx.get(r.id) ?? {}) as object), id: r.id, at: r.at, userId: r.userId, userName: r.userName ?? '—' }));
     },
   };
   return ops;

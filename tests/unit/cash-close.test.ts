@@ -144,3 +144,16 @@ test('corregir un cierre: queda auditado y se recalcula esperado y diferencia (s
   const h = await svc.cash.history(admin) as { rows: CashCloseRecord[] }; const again = h.rows.find((x) => x.id === r.id)!;
   assert.equal(again.diff, 0); assert.equal(again.note, 'Fondo incluía venta anulada'); assert.ok(again.fixed);
 });
+
+test('ventas atrasadas después del cierre: se relee el día y se corrige el fondo de la apertura de hoy', async () => {
+  const { db, svc, setClock } = setup();
+  db.cashSales.length = 0;
+  setClock(T('20:00')); const r = await svc.cash.close(admin, { float: 47310, counted: 47310 }) as CashCloseRecord;
+  db.cashSales.push({ date: '2026-10-07', at: T('19:00'), total: 5970, payments: [{ code: 'CASH', name: 'Efectivo', amount: 5970 }] });
+  const f = await svc.cash.fixClose(admin, r.id, { counted: 53280, reason: 'Venta atrasada en efectivo', refreshSales: true });
+  assert.equal(f.expectedCash, 53280); assert.equal(f.diff, 0); assert.equal(f.salesCount, 1);
+  setClock(new Date('2026-10-08T10:00:00-03:00')); await svc.cash.open(admin, { float: 47310 });
+  await assert.rejects(svc.cash.fixOpenFloat(s1, 53280, 'ajuste'));
+  await svc.cash.fixOpenFloat(admin, 53280, 'Venta atrasada del día anterior');
+  const st = await svc.cash.status(admin); assert.equal(st.open?.float, 53280); assert.equal(st.suggestedFloat, 53280);
+});
