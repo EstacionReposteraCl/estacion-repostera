@@ -32,7 +32,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: SP
         <select name="stock" defaultValue={stock ?? ""} aria-label="Stock"><option value="">Todo el stock</option><option value="sin">Sin stock</option><option value="bajo">Stock bajo</option></select>
         <button className="btn" type="submit">Filtrar</button>
       </form>
-      {stock && <p className="tile" style={{ padding: "10px 14px", margin: "0 0 12px" }}>Mostrando <b>{list.total}</b> producto(s) {STOCK_LABEL[stock]}. <Link href="/inventario">Ver todos</Link></p>}
+      {stock && <p className="tile" style={{ padding: "10px 14px", margin: "0 0 12px" }}>Mostrando <b>{list.total}</b> producto(s) {STOCK_LABEL[stock]}. <Link href="/inventario">Ver todos</Link> · <Link href={`/inventario/imprimir?${new URLSearchParams({ ...(q ? { q } : {}), ...(sp.cat ? { cat: sp.cat } : {}), stock }).toString()}`}>🖨 Imprimir lista</Link></p>}
       {rows.length === 0 ? <p className="muted">No hay productos con ese filtro.</p> : <StockTable key={`${q}|${sp.cat}|${stock}|${page}`} rows={rows} />}
       {pages > 1 && (
         <div className="pager">
