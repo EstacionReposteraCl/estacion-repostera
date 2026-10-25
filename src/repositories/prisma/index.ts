@@ -276,6 +276,11 @@ export function createPrismaPorts(client: PrismaClient = defaultClient): Ports {
           : await client.$queryRaw<{ id: string }[]>`SELECT p.id FROM products p JOIN stock_levels sl ON sl."productId" = p.id AND sl."branchId" = ${branchId} WHERE p.kind = 'GOODS' AND sl.quantity > 0 AND sl.quantity <= greatest(sl."minQuantity", 2)`;
         (where.AND as Prisma.ProductWhereInput[]).push({ id: { in: ids.map((r) => r.id) } });
       }
+      if (f.minQty != null || f.maxQty != null) {
+        const lo = f.minQty ?? -1e12; const hi = f.maxQty ?? 1e12;
+        const ids = await client.$queryRaw<{ id: string }[]>`SELECT p.id FROM products p LEFT JOIN stock_levels sl ON sl."productId" = p.id AND sl."branchId" = ${branchId} WHERE p.kind = 'GOODS' AND coalesce(sl.quantity, 0) BETWEEN ${lo} AND ${hi}`;
+        (where.AND as Prisma.ProductWhereInput[]).push({ id: { in: ids.map((r) => r.id) } });
+      }
       const [total, rows] = await Promise.all([client.product.count({ where }),
         client.product.findMany({ where, include: productInclude(branchId, true), orderBy: { name: 'asc' }, skip: (f.page - 1) * f.pageSize, take: f.pageSize })]);
       return { total, rows: rows.map((p) => searchRow(p as ProductFull, true)) };

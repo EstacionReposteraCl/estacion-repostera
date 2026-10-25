@@ -5,15 +5,17 @@ import { can } from "@/core/permissions";
 import { services } from "@/server/container";
 import { StockTable, type StockRow } from "@/components/stock-table";
 
-type SP = Promise<{ q?: string; cat?: string; p?: string; stock?: string }>;
+type SP = Promise<{ q?: string; cat?: string; p?: string; stock?: string; desde?: string; hasta?: string }>;
+const num = (s?: string) => { const t = (s ?? "").trim().replace(",", "."); return t !== "" && Number.isFinite(Number(t)) && Number(t) >= 0 ? Number(t) : null; };
 const STOCK_LABEL = { sin: "sin stock", bajo: "con stock bajo (2 o menos, o bajo el mínimo)" } as const;
 
 export default async function InventoryPage({ searchParams }: { searchParams: SP }) {
   const { actor } = await requireActor();
   if (!can(actor.role, "inventory.adjust")) redirect("/");
   const sp = await searchParams; const q = (sp.q ?? "").trim(); const page = Math.max(Number(sp.p) || 1, 1); const stock = sp.stock === "sin" || sp.stock === "bajo" ? sp.stock : null;
+  const desde = num(sp.desde); const hasta = num(sp.hasta); const range = desde !== null || hasta !== null;
   const [list, opts] = await Promise.all([
-    services.products.listAdmin(actor, { q, categoryId: sp.cat || null, status: "active", page, pageSize: 40, stock }),
+    services.products.listAdmin(actor, { q, categoryId: sp.cat || null, status: "active", page, pageSize: 40, stock, minQty: desde, maxQty: hasta }),
     services.products.formOptions(actor),
   ]);
   const goods = list.rows.filter((r) => r.stock !== null);
@@ -21,7 +23,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: SP
   const rows: StockRow[] = goods.map((r) => ({ id: r.id, name: r.name, sku: r.sku, unit: r.unit, stock: r.stock ?? "0.000",
     avgCost: r.avgCost ? Math.round(Number(r.avgCost)) : null, refCost: info.referenceCosts.get(r.id) ?? null, hasMovements: info.withMovements.has(r.id) }));
   const pages = Math.max(Math.ceil(list.total / list.pageSize), 1);
-  const link = (p: number) => { const u = new URLSearchParams(); if (q) u.set("q", q); if (sp.cat) u.set("cat", sp.cat); if (stock) u.set("stock", stock); if (p > 1) u.set("p", String(p)); const s = u.toString(); return `/inventario${s ? "?" + s : ""}`; };
+  const link = (p: number) => { const u = new URLSearchParams(); if (q) u.set("q", q); if (sp.cat) u.set("cat", sp.cat); if (stock) u.set("stock", stock); if (desde !== null) u.set("desde", String(desde)); if (hasta !== null) u.set("hasta", String(hasta)); if (p > 1) u.set("p", String(p)); const s = u.toString(); return `/inventario${s ? "?" + s : ""}`; };
   return (
     <main className="page">
       <div className="pagehead"><h1>Inventario</h1></div>
@@ -30,9 +32,11 @@ export default async function InventoryPage({ searchParams }: { searchParams: SP
         <input type="search" name="q" defaultValue={q} placeholder="Buscar por nombre, marca, SKU o código" />
         <select name="cat" defaultValue={sp.cat ?? ""} aria-label="Categoría"><option value="">Todas las categorías</option>{opts.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
         <select name="stock" defaultValue={stock ?? ""} aria-label="Stock"><option value="">Todo el stock</option><option value="sin">Sin stock</option><option value="bajo">Stock bajo</option></select>
+        <label className="inline small">Stock desde <input name="desde" defaultValue={desde ?? ""} inputMode="decimal" placeholder="0" style={{ width: 70 }} aria-label="Stock desde" /></label>
+        <label className="inline small">hasta <input name="hasta" defaultValue={hasta ?? ""} inputMode="decimal" placeholder="—" style={{ width: 70 }} aria-label="Stock hasta" /></label>
         <button className="btn" type="submit">Filtrar</button>
       </form>
-      {stock && <p className="tile" style={{ padding: "10px 14px", margin: "0 0 12px" }}>Mostrando <b>{list.total}</b> producto(s) {STOCK_LABEL[stock]}. <Link href="/inventario">Ver todos</Link> · <Link href={`/inventario/imprimir?${new URLSearchParams({ ...(q ? { q } : {}), ...(sp.cat ? { cat: sp.cat } : {}), stock }).toString()}`}>🖨 Imprimir lista</Link></p>}
+      {(stock || range) && <p className="tile" style={{ padding: "10px 14px", margin: "0 0 12px" }}>Mostrando <b>{list.total}</b> producto(s){stock ? ` ${STOCK_LABEL[stock]}` : ""}{range ? ` con stock ${desde !== null && hasta !== null ? `entre ${desde} y ${hasta}` : desde !== null ? `desde ${desde}` : `hasta ${hasta}`}` : ""}. <Link href="/inventario">Ver todos</Link> · <Link href={`/inventario/imprimir?${new URLSearchParams({ ...(q ? { q } : {}), ...(sp.cat ? { cat: sp.cat } : {}), ...(stock ? { stock } : {}), ...(desde !== null ? { desde: String(desde) } : {}), ...(hasta !== null ? { hasta: String(hasta) } : {}) }).toString()}`}>🖨 Imprimir lista</Link></p>}
       {rows.length === 0 ? <p className="muted">No hay productos con ese filtro.</p> : <StockTable key={`${q}|${sp.cat}|${stock}|${page}`} rows={rows} />}
       {pages > 1 && (
         <div className="pager">
