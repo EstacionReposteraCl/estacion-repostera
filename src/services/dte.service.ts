@@ -3,6 +3,7 @@ import { validation, businessRule, notFound } from '../core/errors/index.ts';
 import { seal, open } from '../core/crypto/secret-box.ts';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { businessDateOf } from '../core/time/business-date.ts';
+import { tedFromXml, resolucionFromXml, linesFromDetail, referencesFromDetail, type IssuedDoc } from '../integrations/openfactura.ts';
 import { openFacturaClient, buildBoleta, buildCreditNoteForBoleta, buildFactura, buildCreditNoteForFactura, medioPagoFor, OpenFacturaError, type HttpCall, type OfEnv, type OfOrg, type Receptor, type NetLine } from '../integrations/openfactura.ts';
 import { normalizeRut } from './settings.service.ts';
 import type { UnitOfWork, IntegrationStore, CatalogReader } from '../repositories/ports.ts';
@@ -19,6 +20,8 @@ const milliToNumber = (m: bigint) => Number(m) / 1000;
 export interface BoletaRecord {
   tipo: 39; folio: number; token: string; fecha: string; env: OfEnv; total: number; neto: number; iva: number; exento: number; medioPago: number | null;
   lines: { name: string; qty: number; lineTotal: number; exempt?: boolean }[]; emisor: OfOrg; resolucion: { fecha: string; numero: number }; timbre: string | null; warning: string | null; saleFolio: number;
+  /** Boleta emitida FUERA del sistema (Espacio de Trabajo de Haulmer o la página web) y traída para imprimirla y compartirla. */
+  origin?: 'web' | 'haulmer' | null;
 }
 /** Factura emitida (33 afecta / 34 exenta). Mismo registro 'dte.issue' que la boleta: una venta tiene UN documento. */
 export interface FacturaRecord {
@@ -41,13 +44,20 @@ export interface Deps {
   /** Verifica que el actor puede ver la venta (vendedor: solo las suyas de hoy). */
   canSee: (actor: Actor, saleId: string) => Promise<unknown>;
   call?: HttpCall; secret?: () => string;
+  /** Dibuja el timbre (PDF417) desde el TED: PNG en base64. */
+  pdf417?: (ted: string) => Promise<string>;
 }
+const defaultPdf417 = async (ted: string) => {
+  const bwip = await import('bwip-js/node');
+  const png = await bwip.toBuffer({ bcid: 'pdf417', text: ted, eclevel: 5, columns: 12, scale: 2, height: 2, binarytext: true } as never);
+  return png.toString('base64');
+};
 
 /**
  * Boleta electrónica (39) emitida desde el sistema con la API de OpenFactura (Haulmer).
  * Conectar (API Key, cifrada en la bitácora): solo ADMINISTRADOR. Emitir y reimprimir: quien puede ver la venta.
  */
-export function createDteService({ uow, integrations, catalog, canSee, now = () => new Date(), call = defaultCall, secret = () => process.env.BETTER_AUTH_SECRET ?? '' }: Deps) {
+export function createDteService({ uow, integrations, catalog, canSee, now = () => new Date(), call = defaultCall, secret = () => process.env.BETTER_AUTH_SECRET ?? '', pdf417 = defaultPdf417 }: Deps) {
   async function config(): Promise<{ apiKey: string; env: OfEnv; org: OfOrg } | null> {
     const a = await integrations.latest('openfactura'); if (!a) return null;
     const apiKey = typeof a.keyBox === 'string' ? open(a.keyBox, secret(), PURPOSE) : null;
@@ -67,7 +77,66 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
   /** Firma del enlace público para compartir el documento (no se puede adivinar ni cambiar de venta). */
   const sig = (saleId: string) => createHmac('sha256', secret()).update(`share-dte:${saleId}`).digest('base64url').slice(0, 24);
 
+  /** Trae una boleta ya emitida (por su token) y la deja asociada a la venta, lista para imprimir en formato térmico. */
+  async function attach(actor: Actor, saleId: string, c: { apiKey: string; env: OfEnv; org: OfOrg }, d: IssuedDoc, origin: 'web' | 'haulmer'): Promise<BoletaRecord> {
+    const cl = openFacturaClient(c.apiKey, c.env, call);
+    const [json, xml] = await Promise.all([wrap(() => cl.detail(d.token)), wrap(() => cl.xml(d.token))]);
+    const ted = tedFromXml(xml)?.replace(/>\s+</g, '><') ?? null; const timbre = ted ? await pdf417(ted) : null;   // el timbre va sin espacios entre etiquetas
+    const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
+    const rec: BoletaRecord = { tipo: 39, folio: d.folio, token: d.token, fecha: d.fecha, env: c.env, total: d.total, neto: d.neto, iva: d.iva, exento: d.exento, medioPago: null,
+      lines: linesFromDetail(json), emisor: c.org, resolucion: resolucionFromXml(xml) ?? c.org.resolucion, timbre, warning: ted ? null : 'No se encontró el timbre en el XML.', saleFolio: got.sale.folio, origin };
+    await uow.run((tx) => tx.audit.write({ action: 'dte.issue', entity: 'Sale', entityId: saleId, userId: actor.userId, after: rec, metadata: { attached: true, origin } }));
+    return rec;
+  }
+  /** La boleta ya está usada por otra venta del sistema? */
+  async function folioTaken(folio: number): Promise<boolean> {
+    const list = await integrations.latestEntries('dte.issue', 'Sale', 2000);
+    return list.some((e) => { const a = e.after as { tipo?: number; folio?: number } | null; return a?.tipo === 39 && a.folio === folio; });
+  }
+
   return {
+    /** Boletas emitidas en Haulmer en una fecha (para traer una que se emitió fuera del sistema). */
+    async issuedOn(actor: Actor | null, fecha: string): Promise<IssuedDoc[]> {
+      assertCan(actor, 'dte.issue');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw validation('Fecha inválida.');
+      const c = await config(); if (!c) throw businessRule('Falta conectar Haulmer.');
+      return (await wrap(() => openFacturaClient(c.apiKey, c.env, call).issued(fecha))).filter((d) => d.tipo === 39).sort((a, b) => b.folio - a.folio);
+    },
+    /** Asocia a la venta una boleta ya emitida en Haulmer (por folio y fecha). El total debe coincidir con el de la venta. */
+    async attachIssued(actor: Actor | null, saleId: string, i: { folio: number; fecha: string }): Promise<BoletaRecord> {
+      assertCan(actor, 'dte.issue'); saleId = String(saleId); await canSee(actor, saleId);
+      const prev = await existing(saleId); if (prev) throw businessRule(`Esta venta ya tiene la ${docName(prev.tipo)} N° ${prev.folio}.`);
+      const folio = Math.trunc(Number(i.folio)); if (!folio || folio <= 0) throw validation('Escribe el N° de la boleta.');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(i.fecha)) throw validation('Fecha de la boleta inválida.');
+      const c = await config(); if (!c) throw businessRule('Falta conectar Haulmer.');
+      const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got) throw notFound('Venta');
+      const d = (await wrap(() => openFacturaClient(c.apiKey, c.env, call).issued(i.fecha))).find((x) => x.tipo === 39 && x.folio === folio);
+      if (!d) throw businessRule(`No encontré la boleta N° ${folio} emitida el ${i.fecha.split('-').reverse().join('-')} en Haulmer.`);
+      if (d.total !== got.sale.total) throw businessRule(`La boleta N° ${folio} es por ${d.total.toLocaleString('es-CL')} y la venta por ${got.sale.total.toLocaleString('es-CL')}: no corresponden.`);
+      if (await folioTaken(folio)) throw businessRule(`La boleta N° ${folio} ya está asociada a otra venta.`);
+      return attach(actor, saleId, c, d, 'haulmer');
+    },
+    /**
+     * Venta de la página web: busca en Haulmer la boleta que emitió Jumpseller para ese pedido (mismo total y referencia
+     * "Nota de pedido N°<pedido>") y la asocia. Devuelve null si todavía no aparece.
+     */
+    async linkWebBoleta(actor: Actor | null, saleId: string): Promise<BoletaRecord | null> {
+      assertCan(actor, 'dte.issue'); saleId = String(saleId); await canSee(actor, saleId);
+      if (await existing(saleId)) return null;
+      const c = await config(); if (!c) return null;
+      const got = await uow.run((tx) => tx.sales.getWithItems(saleId)); if (!got || got.sale.status !== 'COMPLETED') return null;
+      const order = /#\s*(\d+)/.exec(got.sale.externalRef ?? '')?.[1]; if (!order) return null;
+      const cl = openFacturaClient(c.apiKey, c.env, call);
+      const day = got.sale.businessDate; const next = new Date(Date.parse(day + 'T12:00:00Z') + 86400e3).toISOString().slice(0, 10);
+      for (const f of [day, next]) {
+        const cands = (await wrap(() => cl.issued(f))).filter((d) => d.tipo === 39 && d.total === got.sale.total);
+        for (const d of cands) {
+          const refs = referencesFromDetail(await wrap(() => cl.detail(d.token)));
+          if (new RegExp(`(N[°º]?|#)\\s*${order}\\b`).test(refs) && !(await folioTaken(d.folio))) return attach(actor, saleId, c, d, 'web');
+        }
+      }
+      return null;
+    },
     /** Enlace para compartir (WhatsApp / correo) el PDF del documento emitido de la venta. null si no hay documento o está anulado. */
     async shareRef(actor: Actor | null, saleId: string): Promise<{ ref: string; email: string | null } | null> {
       assertCan(actor, 'dte.issue'); await canSee(actor, String(saleId));

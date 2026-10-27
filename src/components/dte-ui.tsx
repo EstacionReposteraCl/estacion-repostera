@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { connectHaulmerAction, issueBoletaAction, annulBoletaAction, markBoletaAnnulledAction, lookupCustomerAction, issueFacturaAction } from "@/actions/dte.actions";
+import { attachIssuedAction, connectHaulmerAction, issueBoletaAction, annulBoletaAction, markBoletaAnnulledAction, lookupCustomerAction, issueFacturaAction } from "@/actions/dte.actions";
 
 export function HaulmerConnectForm() {
   const router = useRouter(); const [pending, start] = useTransition();
@@ -27,7 +27,7 @@ export function HaulmerConnectForm() {
 }
 
 /** Panel en el detalle de la venta: emitir la boleta electrónica (una vez), imprimirla y, si la venta se anula, anularla con nota de crédito. */
-export function DteSalePanel({ saleId, configured, canConfigure, folio, card, voided, ncFolio = null, ncManual = false, canVoid = false, tipo = 39, openFactura = false, share = null }: { share?: { ref: string; email: string | null } | null; saleId: string; configured: boolean; canConfigure: boolean; folio: number | null; card: boolean; voided: boolean; ncFolio?: number | null; ncManual?: boolean; canVoid?: boolean; tipo?: number | null; openFactura?: boolean }) {
+export function DteSalePanel({ saleId, configured, canConfigure, folio, card, voided, ncFolio = null, ncManual = false, canVoid = false, tipo = 39, openFactura = false, share = null, origin = null, saleDate = "" }: { origin?: "web" | "haulmer" | null; saleDate?: string; share?: { ref: string; email: string | null } | null; saleId: string; configured: boolean; canConfigure: boolean; folio: number | null; card: boolean; voided: boolean; ncFolio?: number | null; ncManual?: boolean; canVoid?: boolean; tipo?: number | null; openFactura?: boolean }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null); const [allowCard, setAllowCard] = useState(false);
   const [mode, setMode] = useState<"boleta" | "factura">(openFactura ? "factura" : "boleta");
   const doc = tipo === 33 ? "Factura electrónica" : tipo === 34 ? "Factura exenta electrónica" : "Boleta electrónica"; const docShort = tipo === 39 || !tipo ? "boleta" : "factura";
@@ -35,7 +35,7 @@ export function DteSalePanel({ saleId, configured, canConfigure, folio, card, vo
     <div className="formcard noprint" style={{ maxWidth: 520, margin: "16px auto 0" }}>
       {ncFolio !== null ? <p style={{ margin: 0 }}>{doc} N° {folio} <b>anulada</b>{ncFolio ? <> con la <b>nota de crédito N° {ncFolio}</b></> : null}{ncManual ? " (anulada directamente en Haulmer)" : ""}.</p>
         : voided ? <p className="error" style={{ margin: 0 }}>La venta está anulada, pero la <b>{docShort} N° {folio}</b> sigue vigente ante el SII.</p>
-        : <p style={{ margin: 0 }}>✓ <b>{doc} N° {folio}</b> emitida. <span className="muted small">Si anulas la venta, el sistema también anula esta {docShort} (nota de crédito).</span></p>}
+        : <p style={{ margin: 0 }}>✓ <b>{doc} N° {folio}</b> {origin === "web" ? "emitida por la página web" : origin === "haulmer" ? "emitida en Haulmer" : "emitida"}. <span className="muted small">Si anulas la venta, el sistema también anula esta {docShort} (nota de crédito).</span></p>}
       <div className="actions">
         <Link className={ncFolio !== null || voided ? "btn" : "btn btn-primary"} href={`/ventas/${saleId}/boleta`}>🖨 {docShort === "boleta" ? "Boleta" : "Factura"}</Link>
         {ncFolio !== null && !ncManual && <Link className="btn btn-primary" href={`/ventas/${saleId}/nota-credito`}>🖨 Nota de crédito</Link>}
@@ -62,6 +62,7 @@ export function DteSalePanel({ saleId, configured, canConfigure, folio, card, vo
         <button type="button" role="radio" aria-checked={mode === "factura"} className={mode === "factura" ? "on" : ""} onClick={() => setMode("factura")}>Factura electrónica</button>
       </div>
       {mode === "factura" ? <FacturaForm saleId={saleId} card={card} /> : (<>
+        <AttachIssued saleId={saleId} saleDate={saleDate} />
         {card ? <label className="inline small" style={{ fontWeight: 400 }}><input type="checkbox" checked={allowCard} onChange={(e) => setAllowCard(e.target.checked)} style={{ width: "auto" }} /> Se pagó con tarjeta: la máquina TUU ya emite boleta. Emitir igual (solo si TUU no la emitió).</label>
           : <p className="muted small" style={{ marginTop: 0 }}>Para ventas de Rappi, transferencias, efectivo u otras que no pasaron por la máquina TUU.</p>}
         <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || (card && !allowCard)} onClick={() => {
@@ -129,6 +130,24 @@ function ShareDoc({ refId, email, doc, folio }: { refId: string; email: string |
       </div>
       <button type="button" className="link small" onClick={async () => { try { await navigator.clipboard.writeText(url()); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { prompt("Copia el enlace:", url()); } }}>{copied ? "✓ Enlace copiado" : "Copiar enlace del PDF"}</button>
       {" · "}<a className="small" href={`/c/${refId}`} target="_blank" rel="noopener">Ver PDF</a>
+    </div>
+  );
+}
+
+/** Traer una boleta que ya se emitió fuera del sistema (Espacio de Trabajo de Haulmer, página web) para imprimirla y compartirla desde aquí. */
+function AttachIssued({ saleId, saleDate }: { saleId: string; saleDate: string }) {
+  const router = useRouter(); const [pending, start] = useTransition(); const [open, setOpen] = useState(false);
+  const [folio, setFolio] = useState(""); const [fecha, setFecha] = useState(saleDate); const [err, setErr] = useState<string | null>(null);
+  if (!open) return <p className="small" style={{ marginTop: 0 }}><button type="button" className="link small" onClick={() => setOpen(true)}>¿Ya la emitiste en Haulmer o en la página web? Tráela aquí</button></p>;
+  return (
+    <div className="tile" style={{ marginBottom: 12 }}>
+      <p className="small" style={{ marginTop: 0 }}>Escribe el N° de la boleta y su fecha. El sistema la trae de Haulmer (con su timbre) para imprimirla en tu formato y compartirla. El total debe ser igual al de esta venta.</p>
+      <div className="share-row">
+        <input value={folio} onChange={(e) => setFolio(e.target.value)} inputMode="numeric" placeholder="N° de boleta, ej. 15294" aria-label="N° de boleta" />
+        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} aria-label="Fecha de la boleta" style={{ width: "auto" }} />
+        <button type="button" className="btn btn-small" disabled={pending || !folio.trim()} onClick={() => { setErr(null); start(async () => { const r = await attachIssuedAction(saleId, folio, fecha); if (r.ok) router.refresh(); else setErr(r.error); }); }}>{pending ? "Buscando…" : "Traer"}</button>
+      </div>
+      {err && <p className="error small" role="alert">{err}</p>}
     </div>
   );
 }

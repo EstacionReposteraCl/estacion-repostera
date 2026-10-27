@@ -115,3 +115,31 @@ test('compartir boleta: enlace firmado entrega el PDF de Haulmer; firma alterada
   assert.equal(await dte.publicPdf(sh.ref.slice(0, -1) + (sh.ref.endsWith('A') ? 'B' : 'A')), null);
   assert.equal(await dte.publicPdf('x'), null);
 });
+
+test('boleta emitida fuera del sistema: se trae por folio (total debe calzar) y la de la web se asocia sola por "Nota de pedido N°"', async () => {
+  const { db, svc } = world(); const h = fakeHaulmer();
+  const XML = (folio: number) => `<?xml version="1.0" encoding="ISO-8859-1"?><EnvioBOLETA><Caratula><FchResol>2014-08-22</FchResol><NroResol>80</NroResol></Caratula><DTE><Documento><TED version="1.0">\n  <DD><RE>78485985-1</RE><F>${folio}</F></DD>\n  <FRMT algoritmo="SHA1withRSA">abc</FRMT>\n</TED></Documento></DTE></EnvioBOLETA>`;
+  const call: HttpCall = async (url, init) => {
+    if (url.endsWith('/document/issued')) return { status: 200, text: async () => JSON.stringify({ current_page: 1, last_page: 1, data: [
+      { TipoDTE: 39, Folio: 15294, FchEmis: '2026-10-07', MntTotal: 960, MntNeto: 807, IVA: 153, MntExe: 0, Token: 'T15294' },
+      { TipoDTE: 39, Folio: 15295, FchEmis: '2026-10-07', MntTotal: 960, MntNeto: 807, IVA: 153, MntExe: 0, Token: 'T15295' }] }) };
+    const m = /\/document\/(T\d+)\/(json|xml)$/.exec(url);
+    if (m && m[2] === 'json') return { status: 200, text: async () => JSON.stringify({ json: { Detalle: [{ NmbItem: '(SKU001) Azúcar', QtyItem: '1', MontoItem: '960' }], Referencia: m[1] === 'T15295' ? [{ RazonRef: 'Nota de pedido Nº1028 - Fecha 2026-10-07' }] : [] } }) };
+    if (m && m[2] === 'xml') return { status: 200, text: async () => JSON.stringify({ xml: Buffer.from(XML(Number(m[1].slice(1))), 'latin1').toString('base64') }) };
+    return h.call(url, init);
+  };
+  const teds: string[] = [];
+  const dte = createDteService({ uow: db.ports.uow, integrations: db.ports.integrations, catalog: db.ports.catalog, now: db.now, canSee: (a, id) => svc.sales.getSaleForActor(a, id, true), call, secret: () => 's'.repeat(32), pdf417: async (t) => { teds.push(t); return 'PNG'; } });
+  await dte.connect(admin, { apiKey: 'k'.repeat(32) });
+  db.setStock('main', 'az', 15000n, 100000, 2);
+  const a = await svc.sales.closeSale(s1, sale([{ productId: 'az', quantity: '0,080' }], 960, 'ka1', 'CASH'));
+  const big = await svc.sales.closeSale(s1, sale([{ productId: 'az', quantity: '0,160' }], 1920, 'ka2', 'CASH'));
+  await assert.rejects(dte.attachIssued(admin, big.id, { folio: 15294, fecha: '2026-10-07' }), /no corresponden/);
+  await assert.rejects(dte.attachIssued(admin, a.id, { folio: 999, fecha: '2026-10-07' }), /No encontré/);
+  const r = await dte.attachIssued(admin, a.id, { folio: 15294, fecha: '2026-10-07' });
+  assert.equal(r.folio, 15294); assert.equal(r.timbre, 'PNG'); assert.deepEqual(r.resolucion, { fecha: '2014-08-22', numero: 80 }); assert.equal(r.lines[0].name, 'Azúcar'); assert.equal(r.origin, 'haulmer');
+  assert.ok(!/>\s+</.test(teds[0]) && teds[0].startsWith('<TED'));
+  await assert.rejects(dte.attachIssued(admin, a.id, { folio: 15294, fecha: '2026-10-07' }), /ya tiene/);
+  const w = await svc.sales.closeSale(s1, { ...sale([{ productId: 'az', quantity: '0,080' }], 960, 'ka3', 'CASH'), externalRef: '#1028' } as never);
+  const linked = (await dte.linkWebBoleta(admin, w.id))!; assert.equal(linked.folio, 15295); assert.equal(linked.origin, 'web');
+});

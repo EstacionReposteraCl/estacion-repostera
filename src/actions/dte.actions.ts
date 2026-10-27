@@ -28,3 +28,8 @@ export async function issueFacturaAction(saleId: string, receptor: { rut: string
   try { const r = await services.dte.issueFactura(await getActor(), String(saleId), { receptor, fmaPago: Number(fmaPago), allowCard: allowCard === true }); revalidatePath(`/ventas/${saleId}`); return { ok: true, folio: r.folio }; }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
 }
+
+export async function attachIssuedAction(saleId: string, folio: string, fecha: string): Promise<{ ok: true; folio: number } | { ok: false; error: string }> {
+  try { const r = await services.dte.attachIssued(await getActor(), String(saleId), { folio: Number(String(folio).replace(/\D/g, "")), fecha: String(fecha) }); revalidatePath(`/ventas/${saleId}`); return { ok: true, folio: r.folio }; }
+  catch (e) { return { ok: false, error: toClientError(e).message }; }
+}

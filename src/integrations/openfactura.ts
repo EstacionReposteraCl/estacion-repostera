@@ -8,6 +8,25 @@ export type HttpCall = (url: string, init: { method: 'GET' | 'POST'; headers: Re
 export interface OfOrg { rut: string; razonSocial: string; giro: string; direccion: string; comuna: string; cdgSIISucur: string; direccionRegional: string; resolucion: { fecha: string; numero: number }; acteco?: number | null }
 export interface BoletaLine { name: string; qty: number; lineTotal: number; exempt: boolean }
 export interface BoletaTotals { neto: number; iva: number; exento: number; total: number }
+export interface IssuedDoc { tipo: number; folio: number; fecha: string; total: number; neto: number; iva: number; exento: number; token: string }
+/** Extrae el timbre (TED) del XML tal cual (sin tocar espacios: el SII valida esos bytes). */
+export function tedFromXml(xml: string): string | null { const m = /<TED[\s>][\s\S]*?<\/TED>/.exec(xml); return m ? m[0] : null; }
+/** Resolución del SII que viene en la carátula del XML. */
+export function resolucionFromXml(xml: string): { fecha: string; numero: number } | null {
+  const f = /<FchResol>([^<]+)<\/FchResol>/.exec(xml); const n = /<NroResol>([^<]+)<\/NroResol>/.exec(xml);
+  return f && n ? { fecha: f[1].trim(), numero: Number(n[1]) || 0 } : null;
+}
+/** Líneas de la boleta desde el JSON del DTE (montos con IVA, como se imprimen). */
+export function linesFromDetail(json: Record<string, unknown>): { name: string; qty: number; lineTotal: number; exempt?: boolean }[] {
+  const det = Array.isArray(json.Detalle) ? json.Detalle : json.Detalle ? [json.Detalle] : [];
+  return det.map((d) => { const x = o(d); const name = s(x.NmbItem).replace(/^\(SKU[^)]*\)\s*/, ''); return { name, qty: Number(x.QtyItem) || 1, lineTotal: Number(x.MontoItem) || 0, ...(s(x.IndExe) === '1' ? { exempt: true } : {}) }; })
+    .filter((l) => l.name && l.lineTotal > 0);
+}
+/** Referencias del DTE (p. ej. "Nota de pedido N°1028"), en texto. */
+export function referencesFromDetail(json: Record<string, unknown>): string {
+  const refs = Array.isArray(json.Referencia) ? json.Referencia : json.Referencia ? [json.Referencia] : [];
+  return refs.map((r) => { const x = o(r); return [s(x.RazonRef), s(x.FolioRef)].join(' '); }).join(' | ');
+}
 export interface EmitResult { folio: number; token: string; timbre: string | null; resolucion: { fecha: string; numero: number } | null; warning: string | null }
 
 const s = (v: unknown) => (typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : '');
@@ -159,6 +178,25 @@ export function openFacturaClient(apiKey: string, env: OfEnv, call: HttpCall) {
   return {
     async organization(): Promise<OfOrg> { return toOrg(await req('GET', '/organization')); },
     async taxpayer(rut: string): Promise<Receptor | null> { return toTaxpayer(await req('GET', `/taxpayer/${encodeURIComponent(rut.replace(/\./g, ''))}`)); },
+    /** Documentos emitidos en una fecha (los emitidos desde el sistema, el Espacio de Trabajo o integraciones como Jumpseller). */
+    async issued(fecha: string): Promise<IssuedDoc[]> {
+      const out: IssuedDoc[] = [];
+      for (let page = 1; page <= 20; page++) {
+        const r = o(await req('POST', '/document/issued', { Page: String(page), FchEmis: { eq: fecha } }));
+        for (const d of Array.isArray(r.data) ? r.data : []) { const x = o(d);
+          out.push({ tipo: Number(x.TipoDTE), folio: Number(x.Folio), fecha: s(x.FchEmis), total: Number(x.MntTotal) || 0, neto: Number(x.MntNeto) || 0, iva: Number(x.IVA) || 0, exento: Number(x.MntExe) || 0, token: s(x.Token) }); }
+        if (!r.last_page || page >= Number(r.last_page)) break;
+      }
+      return out;
+    },
+    /** Detalle del documento emitido (JSON del DTE). */
+    async detail(token: string): Promise<Record<string, unknown>> { return o(o(await req('GET', `/document/${encodeURIComponent(token)}/json`)).json); },
+    /** XML del documento (ISO-8859-1), con el timbre (TED). */
+    async xml(token: string): Promise<string> {
+      const b64 = s(o(await req('GET', `/document/${encodeURIComponent(token)}/xml`)).xml);
+      if (!b64) throw new OpenFacturaError('Haulmer no devolvió el XML del documento.', 200);
+      return Buffer.from(b64, 'base64').toString('latin1');
+    },
     /** PDF del documento ya emitido (el mismo que ve el cliente en Haulmer). */
     async pdf(token: string): Promise<Buffer> {
       const b64 = s(o(await req('GET', `/document/${encodeURIComponent(token)}/pdf`)).pdf);

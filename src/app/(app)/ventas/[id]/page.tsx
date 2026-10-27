@@ -16,8 +16,11 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   let sale, meta;
   try { [sale, meta] = await Promise.all([services.sales.getSaleForActor(actor, id), services.sales.metaForActor(actor, id)]); }
   catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
-  const [fin, footer, dte, boleta] = await Promise.all([can(actor.role, "report.financial") ? services.sales.getSaleFinancial(actor, id) : null, services.sales.receiptFooter(actor),
+  const [fin, footer, dte, boleta0] = await Promise.all([can(actor.role, "report.financial") ? services.sales.getSaleFinancial(actor, id) : null, services.sales.receiptFooter(actor),
     can(actor.role, "dte.issue") ? services.dte.status(actor) : null, can(actor.role, "dte.issue") ? services.dte.forSale(actor, id) : null]);
+  // Pedido de la página web sin boleta en el sistema: se busca la que emitió Jumpseller en Haulmer y se asocia sola.
+  let boleta = boleta0;
+  if (!boleta && dte?.configured && sale.status === "COMPLETED" && /web/i.test(meta.channel) && /#\s*\d+/.test(meta.externalRef ?? "")) boleta = await services.dte.linkWebBoleta(actor, id).catch(() => null);
   const nc = boleta ? await services.dte.creditNoteFor(actor, id) : null;
   const share = boleta && !nc ? await services.dte.shareRef(actor, id).catch(() => null) : null;
   return (
@@ -50,7 +53,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
         <footer>{footer && <>{footer}<br /></>}Documento interno, no válido como boleta.<br />¡Gracias por tu compra!</footer>
       </article>
       <ReceiptActions saleId={sale.id} fresh={Boolean(nueva)} />
-      {dte && <DteSalePanel share={share} saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} ncFolio={nc ? nc.folio : null} ncManual={!!nc?.manual} tipo={boleta?.tipo ?? null} openFactura={factura === "1"} canVoid={can(actor.role, "sale.void")} voided={sale.status === "VOIDED"}
+      {dte && <DteSalePanel share={share} origin={boleta && "origin" in boleta ? boleta.origin ?? null : null} saleDate={new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(new Date(sale.soldAt))} saleId={sale.id} configured={dte.configured} canConfigure={dte.canConfigure} folio={boleta?.folio ?? null} ncFolio={nc ? nc.folio : null} ncManual={!!nc?.manual} tipo={boleta?.tipo ?? null} openFactura={factura === "1"} canVoid={can(actor.role, "sale.void")} voided={sale.status === "VOIDED"}
         card={meta.payments.some((p) => /d[ée]bito|cr[ée]dito|tuu/i.test(p.method))} />}
       {fin && <SaleAdminPanel saleId={sale.id} status={sale.status} fin={fin.financial} charges={fin.charges} total={sale.total} />}
     </main>
