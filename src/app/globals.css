@@ -528,3 +528,4 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 .mainnav .navpanel a:hover, .mainnav .navpanel a.on { background: var(--bg); color: var(--ink); }
 @media (max-width: 760px) { .mainnav { position: relative; } .mainnav .navdrop { position: static; } .mainnav .navpanel { top: 100%; left: 0; right: 0; min-width: 0; } .mainnav .navbtn { padding-left: 7px; padding-right: 7px; font-size: 0.9rem; } }
 @media print { .mainnav .navpanel { display: none; } }
+.mainnav .navpanel::before { content: ""; position: absolute; left: 0; right: 0; top: -10px; height: 10px; }   /* puente: el cursor no "se cae" entre el botón y el menú */
