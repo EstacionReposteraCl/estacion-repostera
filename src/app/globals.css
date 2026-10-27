@@ -514,3 +514,17 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 .print-list td.pedir { min-width: 70px; border-left: 1px solid var(--line); }
 @media print { .report-print .print-list { font-size: 9.5pt; } .report-print .print-list td, .report-print .print-list th { padding: 3px 5px; border-bottom: 1px solid #bbb; } .report-print .print-list tr { break-inside: avoid; } }
 .report-print .print-list td:nth-child(2) { min-width: 220px; }
+
+/* Menú superior con secciones desplegables */
+.mainnav { overflow: visible; align-items: stretch; }
+.mainnav .navdrop { position: relative; display: flex; }
+.mainnav .navbtn { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 6px 6px 0 0; color: var(--plum-soft); font: inherit; font-size: 0.95rem; font-weight: 600; padding: 8px 11px 7px; cursor: pointer; white-space: nowrap; }
+.mainnav .navbtn:hover, .mainnav .navbtn[aria-expanded="true"] { color: var(--plum-ink); background: rgba(255, 255, 255, 0.08); }
+.mainnav .navbtn[aria-current="page"] { color: var(--plum-ink); border-bottom-color: var(--sun); }
+.mainnav .caret { font-size: 0.7em; opacity: 0.8; margin-left: 2px; }
+.mainnav .navpanel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 270px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(20, 10, 40, 0.18); padding: 6px; display: grid; gap: 2px; }
+.mainnav .navpanel a { display: grid; gap: 1px; padding: 9px 12px; border: 0; border-radius: 8px; color: var(--ink); white-space: normal; font-size: 0.95rem; }
+.mainnav .navpanel a span { color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+.mainnav .navpanel a:hover, .mainnav .navpanel a.on { background: var(--bg); color: var(--ink); }
+@media (max-width: 760px) { .mainnav { position: relative; } .mainnav .navdrop { position: static; } .mainnav .navpanel { top: 100%; left: 0; right: 0; min-width: 0; } .mainnav .navbtn { padding-left: 7px; padding-right: 7px; font-size: 0.9rem; } }
+@media print { .mainnav .navpanel { display: none; } }
