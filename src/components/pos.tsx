@@ -124,6 +124,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
   // Cobro con la máquina TUU desde el sistema: se envía el monto de tarjeta, se espera el pago y recién ahí se registra la venta.
   const [tuuWait, setTuuWait] = useState<{ amount: number; msg: string } | null>(null);
   const tuuPaid = useRef<{ amount: number; key: string } | null>(null); const tuuStop = useRef(false);
+  const [alreadyPaid, setAlreadyPaid] = useState(false);   // la tarjeta ya se pasó en la máquina (sin enviar el monto desde aquí)
   const tuuPending = useRef<{ amount: number; key: string } | null>(null);   // cobro enviado cuyo resultado no alcanzamos a ver: al reintentar se revisa ese mismo, no se cobra de nuevo
   const cardIdx = pays.map((p, i) => ({ i, code: methods.find((m) => m.id === p.methodId)?.code })).filter((x) => x.code === "DEBIT" || x.code === "CREDIT");
   async function payWithTuu(amount: number, method: "DEBIT" | "CREDIT"): Promise<boolean> {
@@ -155,7 +156,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
   function charge() {
     setError(null);
     if (tuu && !backdated && cardIdx.length > 1) { setError("Con la máquina TUU solo se puede cobrar una parte con tarjeta."); return; }
-    const card = tuu && !backdated && cardIdx.length === 1 ? { amount: payAmounts[cardIdx[0].i], method: cardIdx[0].code as "DEBIT" | "CREDIT" } : null;
+    const card = tuu && !backdated && !alreadyPaid && cardIdx.length === 1 ? { amount: payAmounts[cardIdx[0].i], method: cardIdx[0].code as "DEBIT" | "CREDIT" } : null;
     const d = disc && !("error" in disc) ? disc : null;
     const input = { lines: lines.map((l, i) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(d ? { manualUnitPrice: d.prices[i] } : isAdmin && isManual(l) ? { manualUnitPrice: unitPrice(l) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
       externalRef: channel?.code !== "LOCAL" && externalRef.trim() ? externalRef.trim() : backdated && tuuRef.trim() ? `TUU ${tuuRef.trim()}` : null,
@@ -170,7 +171,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
         const r = await closeSaleAction({ ...input, idempotencyKey, ...(card ? { note: [input.note, "Tarjeta cobrada desde el sistema (TUU)"].filter(Boolean).join(" · ") } : {}) });
         if (r.ok) {
           const f = doc === "factura"; const emit = autoBoleta && doc === "boleta" && !backdated;
-          reset(); setTuuRef(""); setDoc("boleta"); tuuPaid.current = null; tuuPending.current = null;
+          reset(); setTuuRef(""); setDoc("boleta"); setAlreadyPaid(false); tuuPaid.current = null; tuuPending.current = null;
           if (emit) {   // boleta desde el sistema: se emite al tiro y se abre para imprimir (la máquina TUU solo cobra)
             const b = await issueBoletaAction(String(r.id), true).catch(() => ({ ok: false as const, error: "No hubo respuesta de Haulmer." }));
             if (b.ok) { router.push(`/ventas/${r.id}/boleta?print=1`); return; }
@@ -280,6 +281,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
             {Number.isFinite(change) && <p className={change < 0 ? "out" : ""} style={{ margin: "6px 0 0" }}>{change < 0 ? `Faltan ${clp(-change)}` : <>Vuelto: <strong>{clp(change)}</strong></>}</p>}
           </div>
         )}
+        {tuu && !backdated && cardIdx.length > 0 && <label className="inline small" style={{ fontWeight: 400, margin: "6px 0" }}><input type="checkbox" checked={alreadyPaid} onChange={(e) => setAlreadyPaid(e.target.checked)} style={{ width: "auto" }} /> Ya la cobré en la máquina TUU (no enviar el monto)</label>}
         <div className="doc-toggle" role="radiogroup" aria-label="Documento">
           <button type="button" role="radio" aria-checked={doc === "boleta"} className={doc === "boleta" ? "on" : ""} onClick={() => setDoc("boleta")}>Boleta</button>
           <button type="button" role="radio" aria-checked={doc === "factura"} className={doc === "factura" ? "on" : ""} onClick={() => setDoc("factura")}>Factura</button>
