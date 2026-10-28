@@ -529,3 +529,8 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 @media (max-width: 760px) { .mainnav { position: relative; } .mainnav .navdrop { position: static; } .mainnav .navpanel { top: 100%; left: 0; right: 0; min-width: 0; } .mainnav .navbtn { padding-left: 7px; padding-right: 7px; font-size: 0.9rem; } }
 @media print { .mainnav .navpanel { display: none; } }
 .mainnav .navpanel::before { content: ""; position: absolute; left: 0; right: 0; top: -10px; height: 10px; }   /* puente: el cursor no "se cae" entre el botón y el menú */
+.tuu-wait { position: fixed; inset: 0; z-index: 100; background: rgba(20, 10, 40, 0.55); display: grid; place-items: center; padding: 16px; }
+.tuu-box { background: var(--surface); color: var(--ink); border-radius: 16px; padding: 24px 28px; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+.tuu-amount { font-size: 2.2rem; font-weight: 800; margin-bottom: 6px; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }

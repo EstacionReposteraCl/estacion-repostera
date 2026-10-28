@@ -13,6 +13,7 @@ import { createCashService } from './cash.service.ts';
 import { createMoneyService } from './money.service.ts';
 import { createShippingService } from './shipping.service.ts';
 import { createDteService } from './dte.service.ts';
+import { createTuuService } from './tuu.service.ts';
 import { createWebOrdersService } from './web-orders.service.ts';
 import type { Actor } from '../core/permissions/permissions.ts';
 
@@ -31,6 +32,7 @@ export function createServices(p: Ports, opts: { actorFor?: (userId: string) => 
     cash: createCashService({ uow: p.uow, cash: p.cash, catalog: p.catalog, now: p.now }),
     money: createMoneyService({ uow: p.uow, money: p.money, catalog: p.catalog, now: p.now }),
     shipping: createShippingService({ uow: p.uow, integrations: p.integrations }),
+    tuu: createTuuService({ uow: p.uow, integrations: p.integrations }),
     dte: createDteService({ uow: p.uow, integrations: p.integrations, catalog: p.catalog, now: p.now, canSee: (actor, id) => sales.getSaleForActor(actor, id, true) }),
     webOrders: createWebOrdersService({ uow: p.uow, integrations: p.integrations, catalog: p.catalog, now: p.now, sales, products, actorFor: opts.actorFor ?? (async () => null) }),
   };

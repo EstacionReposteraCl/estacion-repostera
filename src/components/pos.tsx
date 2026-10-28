@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { closeSaleAction, posSearchAction } from "@/actions/sales.actions";
 import { issueBoletaAction } from "@/actions/dte.actions";
+import { tuuStartAction, tuuCheckAction } from "@/actions/tuu.actions";
 import type { ProductPublicDTO } from "@/dto/product.dto";
 import { parseQuantity } from "@/core/money/quantity";
 import { lineTotalPerBase } from "@/core/money/iva";
@@ -22,7 +23,7 @@ const lineTotal = (l: Line) => { try { const u = unitPrice(l); return Number.isF
 const plainQty = (t: string | null) => { if (t == null) return null; const [i, f = ""] = t.split("."); const fr = f.replace(/0+$/, ""); return fr ? `${i},${fr}` : i; };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export function Pos({ channels, methods, isAdmin, today, autoBoleta = false }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean }) {
+export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu = false }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean; tuu?: boolean }) {
   const router = useRouter();
   const local = channels.find((c) => c.code === "LOCAL") ?? channels[0];
   const cash = methods.find((m) => m.code === "CASH") ?? methods[0];
@@ -120,8 +121,41 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false }: {
   }
   function reset() { setDiscount(""); setLines([]); setPays([{ methodId: cash?.id ?? "", amount: "" }]); setReceived(""); setExternalRef(""); setChannelId(local?.id ?? ""); attempt.current = null; searchRef.current?.focus(); }
 
+  // Cobro con la máquina TUU desde el sistema: se envía el monto de tarjeta, se espera el pago y recién ahí se registra la venta.
+  const [tuuWait, setTuuWait] = useState<{ amount: number; msg: string } | null>(null);
+  const tuuPaid = useRef<{ amount: number; key: string } | null>(null); const tuuStop = useRef(false);
+  const tuuPending = useRef<{ amount: number; key: string } | null>(null);   // cobro enviado cuyo resultado no alcanzamos a ver: al reintentar se revisa ese mismo, no se cobra de nuevo
+  const cardIdx = pays.map((p, i) => ({ i, code: methods.find((m) => m.id === p.methodId)?.code })).filter((x) => x.code === "DEBIT" || x.code === "CREDIT");
+  async function payWithTuu(amount: number, method: "DEBIT" | "CREDIT"): Promise<boolean> {
+    if (tuuPaid.current) { if (tuuPaid.current.amount === amount) return true; setError(`Ya se cobró ${clp(tuuPaid.current.amount)} con tarjeta en la máquina. Deja el monto de tarjeta en ${clp(tuuPaid.current.amount)} o anula ese pago en la máquina.`); return false; }
+    tuuStop.current = false; let key: string;
+    const prev = tuuPending.current && tuuPending.current.amount === amount ? tuuPending.current : null;
+    const prevSt = prev ? await tuuCheckAction(prev.key).catch(() => null) : null;
+    if (prev && prevSt?.ok && ["pending", "sent", "processing", "completed"].includes(prevSt.status)) key = prev.key;
+    else {
+      key = `er-${newKey().replace(/[^a-z0-9]/gi, "").slice(0, 30)}`; tuuPending.current = { amount, key };
+      setTuuWait({ amount, msg: "Enviando el cobro a la máquina…" });
+      const s = await tuuStartAction(amount, method, key).catch(() => ({ ok: false as const, error: "No hubo respuesta del servidor." }));
+      if (!s.ok) { tuuPending.current = null; setTuuWait(null); setError(`No se pudo enviar el cobro a la máquina TUU: ${s.error}`); return false; }
+    }
+    setTuuWait({ amount, msg: "Pasa la tarjeta en la máquina TUU…" });
+    const until = Date.now() + 4 * 60_000;
+    while (Date.now() < until && !tuuStop.current) {
+      await new Promise((r) => setTimeout(r, 2500));
+      const c = await tuuCheckAction(key).catch(() => null); if (!c || !c.ok) continue;
+      if (c.status === "completed") { tuuPaid.current = { amount, key }; tuuPending.current = null; setTuuWait(null); return true; }
+      if (c.status === "failed" || c.status === "canceled") { tuuPending.current = null; setTuuWait(null); setError(`El pago con tarjeta no se completó (${c.status === "failed" ? "rechazado o con error" : "cancelado"}). No se registró la venta.`); return false; }
+      if (c.status === "processing") setTuuWait({ amount, msg: "Procesando el pago…" });
+    }
+    setTuuWait(null);
+    setError(tuuStop.current ? "Dejaste de esperar el pago. Si en la máquina sale APROBADO, presiona Cobrar de nuevo con el mismo monto." : "La máquina no respondió a tiempo. Revisa la máquina: si el pago salió aprobado, presiona Cobrar de nuevo.");
+    return false;
+  }
+
   function charge() {
     setError(null);
+    if (tuu && !backdated && cardIdx.length > 1) { setError("Con la máquina TUU solo se puede cobrar una parte con tarjeta."); return; }
+    const card = tuu && !backdated && cardIdx.length === 1 ? { amount: payAmounts[cardIdx[0].i], method: cardIdx[0].code as "DEBIT" | "CREDIT" } : null;
     const d = disc && !("error" in disc) ? disc : null;
     const input = { lines: lines.map((l, i) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(d ? { manualUnitPrice: d.prices[i] } : isAdmin && isManual(l) ? { manualUnitPrice: unitPrice(l) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
       externalRef: channel?.code !== "LOCAL" && externalRef.trim() ? externalRef.trim() : backdated && tuuRef.trim() ? `TUU ${tuuRef.trim()}` : null,
@@ -132,10 +166,11 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false }: {
     const idempotencyKey = attempt.current.key;
     start(async () => {
       try {
-        const r = await closeSaleAction({ ...input, idempotencyKey });
+        if (card && !(await payWithTuu(card.amount, card.method))) return;
+        const r = await closeSaleAction({ ...input, idempotencyKey, ...(card ? { note: [input.note, "Tarjeta cobrada desde el sistema (TUU)"].filter(Boolean).join(" · ") } : {}) });
         if (r.ok) {
           const f = doc === "factura"; const emit = autoBoleta && doc === "boleta" && !backdated;
-          reset(); setTuuRef(""); setDoc("boleta");
+          reset(); setTuuRef(""); setDoc("boleta"); tuuPaid.current = null; tuuPending.current = null;
           if (emit) {   // boleta desde el sistema: se emite al tiro y se abre para imprimir (la máquina TUU solo cobra)
             const b = await issueBoletaAction(String(r.id), true).catch(() => ({ ok: false as const, error: "No hubo respuesta de Haulmer." }));
             if (b.ok) { router.push(`/ventas/${r.id}/boleta?print=1`); return; }
@@ -144,13 +179,23 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false }: {
           router.push(`/ventas/${r.id}?nueva=1${f ? "&factura=1" : ""}`); return;
         }
         if (r.code === "CONFLICT") attempt.current = null;
-        setError(r.error);
+        setError(card ? `${r.error} (El pago con tarjeta ya está cobrado: corrige y presiona Cobrar de nuevo, no se vuelve a cobrar.)` : r.error);
       } catch { setError("No hubo respuesta del servidor. Revisa la conexión y presiona Cobrar de nuevo: la venta no se duplicará."); }
     });
   }
 
   return (
     <div className="pos">
+      {tuuWait && (
+        <div className="tuu-wait" role="dialog" aria-live="polite">
+          <div className="tuu-box">
+            <div className="tuu-amount">{clp(tuuWait.amount)}</div>
+            <p><span className="spinner" aria-hidden="true" /> {tuuWait.msg}</p>
+            <button type="button" className="btn btn-small" onClick={() => { tuuStop.current = true; }}>Dejar de esperar</button>
+            <p className="muted small" style={{ marginBottom: 0 }}>Para anular el cobro, cancélalo en la máquina.</p>
+          </div>
+        </div>
+      )}
       <section className="pos-left">
         <div className="pos-search">
           <input ref={searchRef} type="search" value={q} onChange={(e) => { setQ(e.target.value); if (e.target.value.trim().length < 2) { seq.current++; setResults([]); setSearching(false); } }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void onEnter(); } }}

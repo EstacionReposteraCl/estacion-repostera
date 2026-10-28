@@ -2,6 +2,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { connectTuuAction } from "@/actions/tuu.actions";
 import { setAutoBoletaAction, attachIssuedAction, connectHaulmerAction, issueBoletaAction, annulBoletaAction, markBoletaAnnulledAction, lookupCustomerAction, issueFacturaAction } from "@/actions/dte.actions";
 
 export function HaulmerConnectForm() {
@@ -169,6 +170,30 @@ export function AutoBoletaToggle({ enabled }: { enabled: boolean }) {
         setErr(null); start(async () => { const r = await setAutoBoletaAction(!enabled); if (r.ok) router.refresh(); else setErr(r.error); });
       }}>{pending ? "Guardando…" : enabled ? "Desactivar" : "Activar boleta al cobrar"}</button>
       {err && <p className="error" role="alert">{err}</p>}
+    </div>
+  );
+}
+
+/** Máquina TUU en "Modo Integración": el sistema le envía el monto y espera el pago (no hay que digitarlo en la máquina). */
+export function TuuConnectForm({ configured, enabled, device }: { configured: boolean; enabled: boolean; device: string | null }) {
+  const router = useRouter(); const [pending, start] = useTransition(); const [msg, setMsg] = useState<{ ok?: string; err?: string }>({});
+  const [key, setKey] = useState(""); const [dev, setDev] = useState(device ?? ""); const [on, setOn] = useState(configured ? enabled : true);
+  return (
+    <div className="formcard" style={{ maxWidth: 640, marginBottom: 16 }}>
+      <h2 className="sect" style={{ marginTop: 0 }}>Cobrar con la máquina TUU desde el sistema</h2>
+      <p style={{ marginTop: 0 }}>{configured ? (enabled ? <>✓ <b>Activado</b> con la máquina <b>{device}</b>. En la Caja, al cobrar con débito o crédito, el monto llega solo a la máquina.</> : <>Conectado (máquina {device}) pero <b>desactivado</b>.</>) : "Al cobrar con débito o crédito en la Caja, el sistema envía el monto a la máquina TUU: el cliente pasa la tarjeta y la venta se registra sola. No hay que digitar el monto en la máquina."}</p>
+      <ol className="small" style={{ paddingLeft: 18 }}>
+        <li>En la máquina: menú (☰) → <b>Modo Integración</b>.</li>
+        <li>En el Espacio de Trabajo: <b>Pagos → Configuración → API</b>: copia la <b>API Key</b> y pégala aquí (se guarda cifrada).</li>
+        <li>El <b>N° de serie</b> de la máquina aparece en el Espacio de Trabajo (Pagos Haulmer → tu máquina) o en la etiqueta de la máquina.</li>
+      </ol>
+      <div className="fields">
+        <div className="field"><label htmlFor="tuu-key">API Key de TUU {configured && <span className="muted small">(déjala vacía para mantener la actual)</span>}</label><input id="tuu-key" type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="new-password" /></div>
+        <div className="field"><label htmlFor="tuu-dev">N° de serie de la máquina</label><input id="tuu-dev" value={dev} onChange={(e) => setDev(e.target.value)} placeholder="Ej.: bc3a9dd84edd25d2" /></div>
+      </div>
+      <label className="inline small" style={{ fontWeight: 400 }}><input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} style={{ width: "auto" }} /> Usar la máquina desde la Caja</label>
+      <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || !dev.trim() || (!configured && !key.trim())} onClick={() => { setMsg({}); start(async () => { const r = await connectTuuAction({ apiKey: key, device: dev, enabled: on }); if (r.ok) { setKey(""); setMsg({ ok: "Guardado." }); router.refresh(); } else setMsg({ err: r.error }); }); }}>{pending ? "Guardando…" : "Guardar"}</button></div>
+      {msg.ok && <p className="ok">{msg.ok}</p>}{msg.err && <p className="error" role="alert">{msg.err}</p>}
     </div>
   );
 }
