@@ -21,6 +21,9 @@ const unitPrice = (l: Line) => (l.price === undefined || l.price.trim() === "" ?
 const isManual = (l: Line) => { const u = unitPrice(l); return Number.isFinite(u) && u !== l.p.salePrice; };
 const lineTotal = (l: Line) => { try { const u = unitPrice(l); return Number.isFinite(u) ? lineTotalPerBase(parseQuantity(l.qty.replace(",", ".")), u) : NaN; } catch { return NaN; } };
 const plainQty = (t: string | null) => { if (t == null) return null; const [i, f = ""] = t.split("."); const fr = f.replace(/0+$/, ""); return fr ? `${i},${fr}` : i; };
+const MAIN_PAY = ["CASH", "DEBIT", "CREDIT", "TRANSFER"];
+const PAY_ICON: Record<string, string> = { CASH: "💵", DEBIT: "💳", CREDIT: "💳", TRANSFER: "🏦" };
+const CH_ICON: Record<string, string> = { LOCAL: "🏪", UBER: "🛵", UBER_EATS: "🛵", RAPPI: "🛵", MERCADO_LIBRE: "🛒", WHATSAPP: "💬", INSTAGRAM: "📷" };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu = false }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean; tuu?: boolean }) {
@@ -43,7 +46,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
   const subtotal = useMemo(() => lines.reduce((s, l) => s + (Number.isFinite(lineTotal(l)) ? lineTotal(l) : 0), 0), [lines]);
   const invalidLine = lines.some((l) => !Number.isFinite(lineTotal(l)) || lineTotal(l) <= 0);
   // Descuento a toda la venta (solo administrador): se reparte bajando el precio de cada línea; la boleta suma exacto.
-  const [discount, setDiscount] = useState("");
+  const [discount, setDiscount] = useState(""); const [showDisc, setShowDisc] = useState(false); const [showDate, setShowDate] = useState(false);
   const disc = useMemo(() => {
     if (!isAdmin || !discount.trim() || invalidLine || lines.length === 0) return null;
     const amount = parseDiscount(discount, subtotal);
@@ -119,7 +122,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
     const m = methods.find((x) => x.id === methodId); const ch = channels.find((c) => c.code === m?.code);
     if (ch && channel?.code === "LOCAL") setChannelId(ch.id);
   }
-  function reset() { setDiscount(""); setLines([]); setPays([{ methodId: cash?.id ?? "", amount: "" }]); setReceived(""); setExternalRef(""); setChannelId(local?.id ?? ""); attempt.current = null; searchRef.current?.focus(); }
+  function reset() { setDiscount(""); setShowDisc(false); setLines([]); setPays([{ methodId: cash?.id ?? "", amount: "" }]); setReceived(""); setExternalRef(""); setChannelId(local?.id ?? ""); attempt.current = null; searchRef.current?.focus(); }
 
   // Cobro con la máquina TUU desde el sistema: se envía el monto de tarjeta, se espera el pago y recién ahí se registra la venta.
   const [tuuWait, setTuuWait] = useState<{ amount: number; msg: string } | null>(null);
@@ -239,17 +242,82 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
       </section>
 
       <aside className="pos-right">
-        {isAdmin && (
-          <div className={`pos-date ${backdated ? "is-past" : ""}`}>
-            <label htmlFor="saledate">Fecha de la venta</label>
-            <input id="saledate" type="date" value={saleDate} max={today} onChange={(e) => setSaleDate(e.target.value || today)} />
-            {backdated && (<>
-              <p className="small" style={{ margin: "6px 0" }}>⚠ Venta <b>atrasada</b>: queda con fecha {saleDate.split("-").reverse().join("-")} en reportes. El stock se descuenta hoy. <button type="button" className="link small" onClick={() => setSaleDate(today)}>Volver a hoy</button></p>
-              {channel?.code === "LOCAL" && (<><label htmlFor="tuuref">N° comprobante TUU (opcional, evita duplicarlo)</label><input id="tuuref" value={tuuRef} onChange={(e) => setTuuRef(e.target.value)} placeholder="Ej.: 10234" /></>)}
-            </>)}
+        <div className="pos-total"><span>Total</span><strong>{clp(total)}</strong></div>
+
+        <div className="pos-sec">Canal</div>
+        <div className="chips chips-ch" role="radiogroup" aria-label="Canal">
+          {channels.filter((c) => c.code !== "PAGINA_WEB").map((c) => (
+            <button key={c.id} type="button" role="radio" aria-checked={channelId === c.id} className={`chip${channelId === c.id ? " on" : ""}`} onClick={() => pickChannel(c.id)}>
+              <span className="chip-ic" aria-hidden="true">{CH_ICON[c.code] ?? "🛍️"}</span>{c.name}
+            </button>
+          ))}
+        </div>
+        {channel && channel.code !== "LOCAL" && (<><label htmlFor="extref">N° de pedido ({channel.name})</label><input id="extref" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} placeholder="Opcional" /></>)}
+
+        <div className="pos-sec">Pago</div>
+        {pays.length === 1 ? (() => {
+          const main = MAIN_PAY.map((code) => methods.find((m) => m.code === code)).filter((m): m is Opt => !!m);
+          const rest = methods.filter((m) => !MAIN_PAY.includes(m.code)); const restOn = rest.some((m) => m.id === pays[0].methodId);
+          return (<>
+            <div className="chips chips-pay" role="radiogroup" aria-label="Medio de pago">
+              {main.map((m) => (
+                <button key={m.id} type="button" role="radio" aria-checked={pays[0].methodId === m.id} className={`chip chip-big${pays[0].methodId === m.id ? " on" : ""}`} onClick={() => pickMethod(0, m.id)}>
+                  <span className="chip-ic" aria-hidden="true">{PAY_ICON[m.code] ?? "💳"}</span>{m.name}
+                </button>
+              ))}
+            </div>
+            {rest.length > 0 && (
+              <select className={`more-pay${restOn ? " on" : ""}`} value={restOn ? pays[0].methodId : ""} onChange={(e) => e.target.value && pickMethod(0, e.target.value)} aria-label="Otros medios de pago">
+                <option value="">Más medios de pago ▾</option>{rest.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            )}
+          </>);
+        })() : pays.map((p, i) => (
+          <div key={i} className="payrow">
+            <select value={p.methodId} onChange={(e) => pickMethod(i, e.target.value)} aria-label="Medio de pago">
+              {methods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            {i === pays.length - 1 ? <span className="payauto">{clp(Math.max(payAmounts[i] || 0, 0))}</span>
+              : <input value={p.amount} onChange={(e) => setPays((ps) => ps.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} inputMode="numeric" placeholder="Monto" aria-label="Monto" />}
+            <button type="button" className="link" onClick={() => setPays((ps) => ps.filter((_, j) => j !== i))} aria-label="Quitar medio">×</button>
+          </div>
+        ))}
+        {isCashOnly && (
+          <div className="cashbox">
+            <div className="quick-cash">
+              <span className="small muted">Recibido:</span>
+              {[total, 5000, 10000, 20000].map((v, k) => (
+                <button key={k} type="button" className={`chip chip-sm${toInt(received) === v && received ? " on" : ""}`} disabled={v < total || total <= 0} onClick={() => setReceived(String(v))}>{k === 0 ? "Justo" : clp(v)}</button>
+              ))}
+              <input id="received" value={received} onChange={(e) => setReceived(e.target.value)} inputMode="numeric" placeholder="Otro" aria-label="Recibido en efectivo" />
+            </div>
+            {Number.isFinite(change) && <p className={`vuelto${change < 0 ? " out" : ""}`}>{change < 0 ? `Faltan ${clp(-change)}` : <>Vuelto <strong>{clp(change)}</strong></>}</p>}
           </div>
         )}
-        {isAdmin && lines.length > 0 && (
+        {tuu && !backdated && cardIdx.length > 0 && <label className="inline small" style={{ fontWeight: 400, margin: "6px 0" }}><input type="checkbox" checked={alreadyPaid} onChange={(e) => setAlreadyPaid(e.target.checked)} style={{ width: "auto" }} /> Ya la cobré en la máquina TUU (no enviar el monto)</label>}
+
+        <div className="pos-sec">Documento</div>
+        <div className={`chips chips-doc${autoBoleta ? " three" : ""}`} role="radiogroup" aria-label="Documento">
+          <button type="button" role="radio" aria-checked={doc === "boleta"} className={`chip${doc === "boleta" ? " on" : ""}`} onClick={() => setDoc("boleta")}><span className="chip-ic" aria-hidden="true">🧾</span>Boleta</button>
+          <button type="button" role="radio" aria-checked={doc === "factura"} className={`chip${doc === "factura" ? " on" : ""}`} onClick={() => setDoc("factura")}><span className="chip-ic" aria-hidden="true">📄</span>Factura</button>
+          {autoBoleta && <button type="button" role="radio" aria-checked={doc === "sin"} className={`chip${doc === "sin" ? " on" : ""}`} onClick={() => setDoc("sin")} title="Por ejemplo, si la plataforma ya emite el documento"><span className="chip-ic" aria-hidden="true">⊘</span>Sin boleta</button>}
+        </div>
+        {autoBoleta && doc === "boleta" && backdated && <p className="muted small" style={{ margin: "4px 0 0" }}>Venta atrasada: la boleta no se emite sola (emítela desde la venta si corresponde).</p>}
+        {doc === "factura" && <p className="muted small" style={{ margin: "4px 0 0" }}>Al cobrar te pedirá el RUT del cliente para emitir la factura.</p>}
+
+        <button className="btn btn-primary pos-charge" type="button" onClick={charge} disabled={pending || lines.length === 0 || invalidLine || !paysOk || !discOk}>
+          {pending ? "Cobrando…" : backdated ? `Registrar venta del ${saleDate.split("-").reverse().slice(0, 2).join("-")} · ${clp(total)}` : `Cobrar ${clp(total)}`}
+        </button>
+        {!paysOk && lines.length > 0 && !invalidLine && <p className="muted small">Los montos de pago deben sumar el total.</p>}
+        {error && <p className="error" role="alert">{error}</p>}
+
+        <div className="pos-extras">
+          {pays.length < 3 && <button type="button" className="link small" onClick={() => setPays((ps) => [{ methodId: methods.find((m) => m.code === "DEBIT")?.id ?? ps[0].methodId, amount: "" }, ...ps])}>＋ Dividir pago</button>}
+          {isAdmin && lines.length > 0 && !showDisc && !discount && <button type="button" className="link small" onClick={() => setShowDisc(true)}>＋ Descuento</button>}
+          {isAdmin && !showDate && !backdated && <button type="button" className="link small" onClick={() => setShowDate(true)}>📅 Venta atrasada</button>}
+          {lines.length > 0 && <button type="button" className="link small" onClick={reset} disabled={pending}>Vaciar venta</button>}
+        </div>
+        {isAdmin && lines.length > 0 && (showDisc || discount) && (
           <div className="pos-discount">
             <label htmlFor="discount">Descuento</label>
             <input id="discount" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="Ej.: 20% o 1.500" autoComplete="off" />
@@ -257,44 +325,16 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
             {disc && !("error" in disc) && <p className="small" style={{ margin: "4px 0 0" }}>Subtotal {clp(subtotal)} − descuento <b>{clp(disc.applied)}</b>{disc.applied !== disc.asked ? ` (ajustado por redondeo)` : ""}. La boleta muestra los precios ya rebajados.</p>}
           </div>
         )}
-        <div className="pos-total"><span>Total</span><strong>{clp(total)}</strong></div>
-        <label htmlFor="channel">Canal</label>
-        <select id="channel" value={channelId} onChange={(e) => pickChannel(e.target.value)}>{channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-        {channel && channel.code !== "LOCAL" && (<><label htmlFor="extref">N° de pedido ({channel.name})</label><input id="extref" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} placeholder="Opcional" /></>)}
-
-        <label>Pago</label>
-        {pays.map((p, i) => (
-          <div key={i} className="payrow">
-            <select value={p.methodId} onChange={(e) => pickMethod(i, e.target.value)} aria-label="Medio de pago">
-              {methods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            {i === pays.length - 1 ? <span className="payauto">{clp(Math.max(payAmounts[i] || 0, 0))}</span>
-              : <input value={p.amount} onChange={(e) => setPays((ps) => ps.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} inputMode="numeric" placeholder="Monto" aria-label="Monto" />}
-            {pays.length > 1 && <button type="button" className="link" onClick={() => setPays((ps) => ps.filter((_, j) => j !== i))}>×</button>}
-          </div>
-        ))}
-        {pays.length < 3 && <button type="button" className="link small" onClick={() => setPays((ps) => [{ methodId: methods.find((m) => m.code === "DEBIT")?.id ?? ps[0].methodId, amount: "" }, ...ps])}>+ Dividir pago entre dos medios</button>}
-        {isCashOnly && (
-          <div className="cashbox">
-            <label htmlFor="received">Recibido en efectivo</label>
-            <input id="received" value={received} onChange={(e) => setReceived(e.target.value)} inputMode="numeric" placeholder="Opcional, para calcular el vuelto" />
-            {Number.isFinite(change) && <p className={change < 0 ? "out" : ""} style={{ margin: "6px 0 0" }}>{change < 0 ? `Faltan ${clp(-change)}` : <>Vuelto: <strong>{clp(change)}</strong></>}</p>}
+        {isAdmin && (showDate || backdated) && (
+          <div className={`pos-date ${backdated ? "is-past" : ""}`}>
+            <label htmlFor="saledate">Fecha de la venta</label>
+            <input id="saledate" type="date" value={saleDate} max={today} onChange={(e) => setSaleDate(e.target.value || today)} />
+            {backdated ? (<>
+              <p className="small" style={{ margin: "6px 0" }}>⚠ Venta <b>atrasada</b>: queda con fecha {saleDate.split("-").reverse().join("-")} en reportes. El stock se descuenta hoy. <button type="button" className="link small" onClick={() => { setSaleDate(today); setShowDate(false); }}>Volver a hoy</button></p>
+              {channel?.code === "LOCAL" && (<><label htmlFor="tuuref">N° comprobante TUU (opcional, evita duplicarlo)</label><input id="tuuref" value={tuuRef} onChange={(e) => setTuuRef(e.target.value)} placeholder="Ej.: 10234" /></>)}
+            </>) : <button type="button" className="link small" onClick={() => setShowDate(false)}>Cerrar</button>}
           </div>
         )}
-        {tuu && !backdated && cardIdx.length > 0 && <label className="inline small" style={{ fontWeight: 400, margin: "6px 0" }}><input type="checkbox" checked={alreadyPaid} onChange={(e) => setAlreadyPaid(e.target.checked)} style={{ width: "auto" }} /> Ya la cobré en la máquina TUU (no enviar el monto)</label>}
-        <div className="doc-toggle" role="radiogroup" aria-label="Documento">
-          <button type="button" role="radio" aria-checked={doc === "boleta"} className={doc === "boleta" ? "on" : ""} onClick={() => setDoc("boleta")}>Boleta</button>
-          <button type="button" role="radio" aria-checked={doc === "factura"} className={doc === "factura" ? "on" : ""} onClick={() => setDoc("factura")}>Factura</button>
-          {autoBoleta && <button type="button" role="radio" aria-checked={doc === "sin"} className={doc === "sin" ? "on" : ""} onClick={() => setDoc("sin")} title="Por ejemplo, si la plataforma ya emite el documento">Sin boleta</button>}
-        </div>
-        {autoBoleta && doc === "boleta" && <p className="muted small" style={{ margin: "4px 0 0" }}>{backdated ? "Venta atrasada: la boleta no se emite sola (emítela desde la venta si corresponde)." : "Al cobrar se emite la boleta electrónica y se abre para imprimir. En la máquina TUU cobra sin boleta."}</p>}
-        {doc === "factura" && <p className="muted small" style={{ margin: "4px 0 0" }}>Al cobrar te pedirá el RUT del cliente para emitir la factura.</p>}
-        <button className="btn btn-primary pos-charge" type="button" onClick={charge} disabled={pending || lines.length === 0 || invalidLine || !paysOk || !discOk}>
-          {pending ? "Cobrando…" : backdated ? `Registrar venta del ${saleDate.split("-").reverse().slice(0, 2).join("-")} · ${clp(total)}` : `Cobrar ${clp(total)}`}
-        </button>
-        {!paysOk && lines.length > 0 && !invalidLine && <p className="muted small">Los montos de pago deben sumar el total.</p>}
-        {lines.length > 0 && <button type="button" className="link small" onClick={reset} disabled={pending}>Vaciar venta</button>}
-        {error && <p className="error" role="alert">{error}</p>}
         {!isAdmin && <p className="muted small">Los precios los fija el administrador.</p>}
       </aside>
     </div>
