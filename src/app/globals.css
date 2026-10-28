@@ -566,3 +566,23 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 .more-pay { padding: 7px 10px !important; }
 .pos-right .pos-sec { margin: 10px 0 5px; }
 .cashbox { padding: 8px 10px; }
+
+/* Caja compacta: todo visible sin bajar */
+.pos { grid-template-columns: minmax(0, 1fr) 380px; }
+.pos-right .pos-total { padding: 12px 16px 10px; }
+.pos-right .pos-total strong { font-size: 2rem; }
+.chips-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.chip-col { flex-direction: column; gap: 2px; min-height: 52px; padding: 5px 2px; font-size: .78rem; }
+.chip-col span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.chip-sel { appearance: none; -webkit-appearance: none; min-height: 52px; padding: 4px 2px !important; font-size: .78rem !important; text-align: center; text-align-last: center; background: var(--surface) !important; border: 1.5px solid var(--line) !important; border-radius: 10px !important; color: var(--ink) !important; font-weight: 600; cursor: pointer; width: 100%; }
+.chip-sel.on { background: var(--plum) !important; color: #fff !important; border-color: var(--plum) !important; }
+.chips-doc .chip { min-height: 38px; font-size: .85rem; }
+.pos-right .extref { margin-top: 6px; padding: 7px 10px; }
+.pos-right .pos-sec { margin: 9px 0 4px; }
+.pos-right .pos-charge { margin-top: 10px; padding: 12px; }
+@media (min-width: 861px) { .pos-right { max-height: none; overflow: visible; } .pos-right .pos-charge { position: static; box-shadow: none; } }
+.quick-cash.q4 { display: grid; grid-template-columns: repeat(4, 1fr); }
+.cash-line { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
+.cash-line input { width: 110px !important; flex: none; padding: 6px 8px; }
+.cash-line .vuelto { margin: 0; white-space: nowrap; }
+.pos-extras { row-gap: 2px; }

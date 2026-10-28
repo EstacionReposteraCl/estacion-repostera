@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { closeSaleAction, posSearchAction } from "@/actions/sales.actions";
 import { issueBoletaAction } from "@/actions/dte.actions";
 import { tuuStartAction, tuuCheckAction } from "@/actions/tuu.actions";
+import { Icon, type IconName } from "@/components/icons";
 import type { ProductPublicDTO } from "@/dto/product.dto";
 import { parseQuantity } from "@/core/money/quantity";
 import { lineTotalPerBase } from "@/core/money/iva";
@@ -22,8 +23,11 @@ const isManual = (l: Line) => { const u = unitPrice(l); return Number.isFinite(u
 const lineTotal = (l: Line) => { try { const u = unitPrice(l); return Number.isFinite(u) ? lineTotalPerBase(parseQuantity(l.qty.replace(",", ".")), u) : NaN; } catch { return NaN; } };
 const plainQty = (t: string | null) => { if (t == null) return null; const [i, f = ""] = t.split("."); const fr = f.replace(/0+$/, ""); return fr ? `${i},${fr}` : i; };
 const MAIN_PAY = ["CASH", "DEBIT", "CREDIT", "TRANSFER"];
-const PAY_ICON: Record<string, string> = { CASH: "💵", DEBIT: "💳", CREDIT: "💳", TRANSFER: "🏦" };
-const CH_ICON: Record<string, string> = { LOCAL: "🏪", UBER: "🛵", UBER_EATS: "🛵", RAPPI: "🛵", MERCADO_LIBRE: "🛒", WHATSAPP: "💬", INSTAGRAM: "📷" };
+const PAY_ICON: Record<string, IconName> = { CASH: "cash", DEBIT: "card", CREDIT: "card", TRANSFER: "bank" };
+const PAY_SHORT: Record<string, string> = { TRANSFER: "Transf." };
+const MAIN_CH = ["LOCAL", "UBER", "UBER_EATS", "RAPPI", "MERCADO_LIBRE"];
+const CH_ICON: Record<string, IconName> = { LOCAL: "store", UBER: "bike", UBER_EATS: "bike", RAPPI: "bike", MERCADO_LIBRE: "bag" };
+const CH_SHORT: Record<string, string> = { MERCADO_LIBRE: "M. Libre", UBER_EATS: "Uber" };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu = false }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean; tuu?: boolean }) {
@@ -245,33 +249,43 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
         <div className="pos-total"><span>Total</span><strong>{clp(total)}</strong></div>
 
         <div className="pos-sec">Canal</div>
-        <div className="chips chips-ch" role="radiogroup" aria-label="Canal">
-          {channels.filter((c) => c.code !== "PAGINA_WEB").map((c) => (
-            <button key={c.id} type="button" role="radio" aria-checked={channelId === c.id} className={`chip${channelId === c.id ? " on" : ""}`} onClick={() => pickChannel(c.id)}>
-              <span className="chip-ic" aria-hidden="true">{CH_ICON[c.code] ?? "🛍️"}</span>{c.name}
-            </button>
-          ))}
-        </div>
-        {channel && channel.code !== "LOCAL" && (<><label htmlFor="extref">N° de pedido ({channel.name})</label><input id="extref" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} placeholder="Opcional" /></>)}
+        {(() => {
+          const vis = channels.filter((c) => c.code !== "PAGINA_WEB"); const main = vis.filter((c) => MAIN_CH.includes(c.code)); const rest = vis.filter((c) => !MAIN_CH.includes(c.code)); const restOn = rest.some((c) => c.id === channelId);
+          return (
+            <div className="chips chips-row" role="radiogroup" aria-label="Canal">
+              {main.map((c) => (
+                <button key={c.id} type="button" role="radio" aria-checked={channelId === c.id} className={`chip chip-col${channelId === c.id ? " on" : ""}`} onClick={() => pickChannel(c.id)}>
+                  <Icon name={CH_ICON[c.code] ?? "bag"} size={18} /><span>{CH_SHORT[c.code] ?? c.name}</span>
+                </button>
+              ))}
+              {rest.length > 0 && (
+                <select className={`chip chip-sel${restOn ? " on" : ""}`} value={restOn ? channelId : ""} onChange={(e) => e.target.value && pickChannel(e.target.value)} aria-label="Otros canales">
+                  <option value="">Otro ▾</option>{rest.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              )}
+            </div>
+          );
+        })()}
+        {channel && channel.code !== "LOCAL" && <input className="extref" value={externalRef} onChange={(e) => setExternalRef(e.target.value)} placeholder={`N° de pedido ${channel.name} (opcional)`} aria-label="N° de pedido" />}
 
         <div className="pos-sec">Pago</div>
         {pays.length === 1 ? (() => {
           const main = MAIN_PAY.map((code) => methods.find((m) => m.code === code)).filter((m): m is Opt => !!m);
           const rest = methods.filter((m) => !MAIN_PAY.includes(m.code)); const restOn = rest.some((m) => m.id === pays[0].methodId);
-          return (<>
-            <div className="chips chips-pay" role="radiogroup" aria-label="Medio de pago">
+          return (
+            <div className="chips chips-row" role="radiogroup" aria-label="Medio de pago">
               {main.map((m) => (
-                <button key={m.id} type="button" role="radio" aria-checked={pays[0].methodId === m.id} className={`chip chip-big${pays[0].methodId === m.id ? " on" : ""}`} onClick={() => pickMethod(0, m.id)}>
-                  <span className="chip-ic" aria-hidden="true">{PAY_ICON[m.code] ?? "💳"}</span>{m.name}
+                <button key={m.id} type="button" role="radio" aria-checked={pays[0].methodId === m.id} className={`chip chip-col${pays[0].methodId === m.id ? " on" : ""}`} onClick={() => pickMethod(0, m.id)}>
+                  <Icon name={PAY_ICON[m.code] ?? "card"} size={18} /><span>{PAY_SHORT[m.code] ?? m.name}</span>
                 </button>
               ))}
+              {rest.length > 0 && (
+                <select className={`chip chip-sel${restOn ? " on" : ""}`} value={restOn ? pays[0].methodId : ""} onChange={(e) => e.target.value && pickMethod(0, e.target.value)} aria-label="Otros medios de pago">
+                  <option value="">Más ▾</option>{rest.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              )}
             </div>
-            {rest.length > 0 && (
-              <select className={`more-pay${restOn ? " on" : ""}`} value={restOn ? pays[0].methodId : ""} onChange={(e) => e.target.value && pickMethod(0, e.target.value)} aria-label="Otros medios de pago">
-                <option value="">Más medios de pago ▾</option>{rest.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            )}
-          </>);
+          );
         })() : pays.map((p, i) => (
           <div key={i} className="payrow">
             <select value={p.methodId} onChange={(e) => pickMethod(i, e.target.value)} aria-label="Medio de pago">
@@ -284,23 +298,24 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
         ))}
         {isCashOnly && (
           <div className="cashbox">
-            <div className="quick-cash">
-              <span className="small muted">Recibido:</span>
+            <div className="quick-cash q4">
               {[total, 5000, 10000, 20000].map((v, k) => (
                 <button key={k} type="button" className={`chip chip-sm${toInt(received) === v && received ? " on" : ""}`} disabled={v < total || total <= 0} onClick={() => setReceived(String(v))}>{k === 0 ? "Justo" : clp(v)}</button>
               ))}
-              <input id="received" value={received} onChange={(e) => setReceived(e.target.value)} inputMode="numeric" placeholder="Otro" aria-label="Recibido en efectivo" />
             </div>
-            {Number.isFinite(change) && <p className={`vuelto${change < 0 ? " out" : ""}`}>{change < 0 ? `Faltan ${clp(-change)}` : <>Vuelto <strong>{clp(change)}</strong></>}</p>}
+            <div className="cash-line">
+              <input id="received" value={received} onChange={(e) => setReceived(e.target.value)} inputMode="numeric" placeholder="Recibido" aria-label="Recibido en efectivo" />
+              {Number.isFinite(change) && <p className={`vuelto${change < 0 ? " out" : ""}`}>{change < 0 ? `Faltan ${clp(-change)}` : <>Vuelto <strong>{clp(change)}</strong></>}</p>}
+            </div>
           </div>
         )}
-        {tuu && !backdated && cardIdx.length > 0 && <label className="inline small" style={{ fontWeight: 400, margin: "6px 0" }}><input type="checkbox" checked={alreadyPaid} onChange={(e) => setAlreadyPaid(e.target.checked)} style={{ width: "auto" }} /> Ya la cobré en la máquina TUU (no enviar el monto)</label>}
+        {tuu && !backdated && cardIdx.length > 0 && <label className="inline small" style={{ fontWeight: 400, margin: "6px 0" }}><input type="checkbox" checked={alreadyPaid} onChange={(e) => setAlreadyPaid(e.target.checked)} style={{ width: "auto" }} /> Ya la cobré en la máquina TUU</label>}
 
         <div className="pos-sec">Documento</div>
         <div className={`chips chips-doc${autoBoleta ? " three" : ""}`} role="radiogroup" aria-label="Documento">
-          <button type="button" role="radio" aria-checked={doc === "boleta"} className={`chip${doc === "boleta" ? " on" : ""}`} onClick={() => setDoc("boleta")}><span className="chip-ic" aria-hidden="true">🧾</span>Boleta</button>
-          <button type="button" role="radio" aria-checked={doc === "factura"} className={`chip${doc === "factura" ? " on" : ""}`} onClick={() => setDoc("factura")}><span className="chip-ic" aria-hidden="true">📄</span>Factura</button>
-          {autoBoleta && <button type="button" role="radio" aria-checked={doc === "sin"} className={`chip${doc === "sin" ? " on" : ""}`} onClick={() => setDoc("sin")} title="Por ejemplo, si la plataforma ya emite el documento"><span className="chip-ic" aria-hidden="true">⊘</span>Sin boleta</button>}
+          <button type="button" role="radio" aria-checked={doc === "boleta"} className={`chip${doc === "boleta" ? " on" : ""}`} onClick={() => setDoc("boleta")}><Icon name="receipt" size={16} />Boleta</button>
+          <button type="button" role="radio" aria-checked={doc === "factura"} className={`chip${doc === "factura" ? " on" : ""}`} onClick={() => setDoc("factura")}><Icon name="file" size={16} />Factura</button>
+          {autoBoleta && <button type="button" role="radio" aria-checked={doc === "sin"} className={`chip${doc === "sin" ? " on" : ""}`} onClick={() => setDoc("sin")} title="Por ejemplo, si la plataforma ya emite el documento"><Icon name="ban" size={16} />Sin boleta</button>}
         </div>
         {autoBoleta && doc === "boleta" && backdated && <p className="muted small" style={{ margin: "4px 0 0" }}>Venta atrasada: la boleta no se emite sola (emítela desde la venta si corresponde).</p>}
         {doc === "factura" && <p className="muted small" style={{ margin: "4px 0 0" }}>Al cobrar te pedirá el RUT del cliente para emitir la factura.</p>}
@@ -314,7 +329,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
         <div className="pos-extras">
           {pays.length < 3 && <button type="button" className="link small" onClick={() => setPays((ps) => [{ methodId: methods.find((m) => m.code === "DEBIT")?.id ?? ps[0].methodId, amount: "" }, ...ps])}>＋ Dividir pago</button>}
           {isAdmin && lines.length > 0 && !showDisc && !discount && <button type="button" className="link small" onClick={() => setShowDisc(true)}>＋ Descuento</button>}
-          {isAdmin && !showDate && !backdated && <button type="button" className="link small" onClick={() => setShowDate(true)}>📅 Venta atrasada</button>}
+          {isAdmin && !showDate && !backdated && <button type="button" className="link small" onClick={() => setShowDate(true)}>Venta atrasada</button>}
           {lines.length > 0 && <button type="button" className="link small" onClick={reset} disabled={pending}>Vaciar venta</button>}
         </div>
         {isAdmin && lines.length > 0 && (showDisc || discount) && (
