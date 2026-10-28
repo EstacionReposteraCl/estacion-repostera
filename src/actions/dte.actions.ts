@@ -33,3 +33,8 @@ export async function attachIssuedAction(saleId: string, folio: string, fecha: s
   try { const r = await services.dte.attachIssued(await getActor(), String(saleId), { folio: Number(String(folio).replace(/\D/g, "")), fecha: String(fecha) }); revalidatePath(`/ventas/${saleId}`); return { ok: true, folio: r.folio }; }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
 }
+
+export async function setAutoBoletaAction(enabled: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+  try { await services.dte.setAutoBoleta(await getActor(), enabled === true); revalidatePath("/boletas"); revalidatePath("/ventas/nueva"); return { ok: true }; }
+  catch (e) { return { ok: false, error: toClientError(e).message }; }
+}

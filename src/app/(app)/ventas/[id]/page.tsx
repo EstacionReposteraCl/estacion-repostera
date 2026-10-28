@@ -10,9 +10,9 @@ import { peso, qty } from "@/lib/format";
 
 const dt = (iso: string) => new Date(iso).toLocaleString("es-CL", { timeZone: "America/Santiago", dateStyle: "short", timeStyle: "short" });
 
-export default async function SalePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ nueva?: string; factura?: string }> }) {
+export default async function SalePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ nueva?: string; factura?: string; dteError?: string }> }) {
   const { actor } = await requireActor();
-  const { id } = await params; const { nueva, factura } = await searchParams;
+  const { id } = await params; const { nueva, factura, dteError } = await searchParams;
   let sale, meta;
   try { [sale, meta] = await Promise.all([services.sales.getSaleForActor(actor, id), services.sales.metaForActor(actor, id)]); }
   catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
@@ -26,6 +26,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   return (
     <main className="page">
       {nueva && <p className="ok noprint" role="status">Venta registrada. Folio N° {sale.folio}.</p>}
+      {dteError && !boleta && <p className="error noprint" role="alert">La venta quedó registrada, pero la boleta electrónica no se pudo emitir: {dteError} Emítela con el botón de abajo.</p>}
       <article className="receipt">
         <header>
           {/* eslint-disable-next-line @next/next/no-img-element */}

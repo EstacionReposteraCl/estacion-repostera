@@ -143,3 +143,17 @@ test('boleta emitida fuera del sistema: se trae por folio (total debe calzar) y 
   const w = await svc.sales.closeSale(s1, { ...sale([{ productId: 'az', quantity: '0,080' }], 960, 'ka3', 'CASH'), externalRef: '#1028' } as never);
   const linked = (await dte.linkWebBoleta(admin, w.id))!; assert.equal(linked.folio, 15295); assert.equal(linked.origin, 'web');
 });
+
+test('boleta al cobrar (TUU solo cobra): con el modo activo se emite aunque se pague con tarjeta; solo el admin lo activa', async () => {
+  const { db, svc } = world(); const h = fakeHaulmer();
+  const dte = createDteService({ uow: db.ports.uow, integrations: db.ports.integrations, catalog: db.ports.catalog, now: db.now, canSee: (a, id) => svc.sales.getSaleForActor(a, id, true), call: h.call, secret: () => 's'.repeat(32) });
+  await assert.rejects(dte.setAutoBoleta(admin, true), /conecta Haulmer/);
+  await dte.connect(admin, { apiKey: 'k'.repeat(32) });
+  db.setStock('main', 'az', 15000n, 100000, 2);
+  const card = await svc.sales.closeSale(s1, sale([{ productId: 'az', quantity: '0,080' }], 960, 'kc1', 'DEBIT'));
+  await assert.rejects(dte.issueBoleta(s1, card.id), /tarjeta/);
+  await assert.rejects(dte.setAutoBoleta(s1, true));
+  await dte.setAutoBoleta(admin, true); assert.equal(await dte.autoBoleta(s1), true);
+  const b = await dte.issueBoleta(s1, card.id); assert.ok(b.folio > 0);
+  await dte.setAutoBoleta(admin, false); assert.equal(await dte.autoBoleta(s1), false);
+});

@@ -4,16 +4,16 @@ import { requireActor } from "@/lib/session";
 import { services } from "@/server/container";
 import { AppError } from "@/core/errors";
 import { peso } from "@/lib/format";
-import { PrintButton } from "@/components/print-button";
+import { PrintButton, AutoPrint } from "@/components/print-button";
 
 const rutFmt = (r: string) => { const [n, dv] = r.split("-"); return n ? `${Number(n).toLocaleString("es-CL")}-${dv ?? ""}` : r; };
 const dmy = (s: string) => s.split("-").reverse().join("-");
 const qtyFmt = (q: number) => (Number.isInteger(q) ? String(q) : q.toLocaleString("es-CL", { maximumFractionDigits: 3 }));
 const MEDIO: Record<number, string> = { 1: "Efectivo", 2: "Pago electrónico", 3: "Transferencia", 4: "Cheque", 5: "Otro" };
 
-export default async function BoletaPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function BoletaPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ print?: string }> }) {
   const { actor } = await requireActor();
-  const { id } = await params;
+  const { id } = await params; const autoPrint = (await searchParams).print === "1";
   let b;
   try { b = await services.dte.forSale(actor, id); } catch (e) { if (e instanceof AppError && (e.code === "NOT_FOUND" || e.code === "FORBIDDEN")) notFound(); throw e; }
   if (!b) notFound();
@@ -66,7 +66,8 @@ export default async function BoletaPage({ params }: { params: Promise<{ id: str
           Verifique documento: www.sii.cl
         </footer>
       </article>
-      <div className="actions noprint" style={{ justifyContent: "center" }}><PrintButton label={b.tipo === 39 ? "Imprimir boleta" : "Imprimir factura"} /><Link className="btn" href={`/ventas/${id}`}>Volver a la venta</Link></div>
+      <div className="actions noprint" style={{ justifyContent: "center" }}><PrintButton label={b.tipo === 39 ? "Imprimir boleta" : "Imprimir factura"} /><Link className="btn" href={`/ventas/${id}`}>Volver a la venta</Link>{autoPrint && <Link className="btn btn-primary" href="/ventas/nueva">Nueva venta</Link>}</div>
+      {autoPrint && <AutoPrint />}
     </main>
   );
 }

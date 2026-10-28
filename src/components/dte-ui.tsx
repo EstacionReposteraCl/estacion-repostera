@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { attachIssuedAction, connectHaulmerAction, issueBoletaAction, annulBoletaAction, markBoletaAnnulledAction, lookupCustomerAction, issueFacturaAction } from "@/actions/dte.actions";
+import { setAutoBoletaAction, attachIssuedAction, connectHaulmerAction, issueBoletaAction, annulBoletaAction, markBoletaAnnulledAction, lookupCustomerAction, issueFacturaAction } from "@/actions/dte.actions";
 
 export function HaulmerConnectForm() {
   const router = useRouter(); const [pending, start] = useTransition();
@@ -148,6 +148,27 @@ function AttachIssued({ saleId, saleDate }: { saleId: string; saleDate: string }
         <button type="button" className="btn btn-small" disabled={pending || !folio.trim()} onClick={() => { setErr(null); start(async () => { const r = await attachIssuedAction(saleId, folio, fecha); if (r.ok) router.refresh(); else setErr(r.error); }); }}>{pending ? "Buscando…" : "Traer"}</button>
       </div>
       {err && <p className="error small" role="alert">{err}</p>}
+    </div>
+  );
+}
+
+/** Modo "boleta desde el sistema": al cobrar en la Caja se emite la boleta aquí; la máquina TUU solo cobra. */
+export function AutoBoletaToggle({ enabled }: { enabled: boolean }) {
+  const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="formcard" style={{ maxWidth: 640, marginBottom: 16 }}>
+      <h2 className="sect" style={{ marginTop: 0 }}>Boleta al cobrar</h2>
+      <p style={{ marginTop: 0 }}>{enabled ? <>✓ <b>Activado:</b> al cobrar en la Caja se emite la boleta electrónica desde el sistema y se abre para imprimir. <b>La máquina TUU solo cobra</b> (configúrala para que no emita boleta).</> : <>Desactivado: la boleta la emite la máquina TUU (tarjetas) o se emite a mano desde cada venta.</>}</p>
+      <ul className="small muted" style={{ paddingLeft: 18 }}>
+        <li>Vale para todos los medios de pago (efectivo, débito, crédito, transferencia…).</li>
+        <li>En la Caja puedes elegir <b>Factura</b> o <b>Sin boleta</b> (por ejemplo, si la plataforma ya emite el documento).</li>
+        <li>Las ventas atrasadas no emiten boleta solas.</li>
+      </ul>
+      <button className={enabled ? "btn" : "btn btn-primary"} type="button" disabled={pending} onClick={() => {
+        if (!confirm(enabled ? "¿Desactivar la boleta automática? La máquina TUU tendrá que volver a emitir boletas." : "¿Activar la boleta automática? Antes, configura la máquina TUU para que NO emita boleta, o tendrás boletas duplicadas.")) return;
+        setErr(null); start(async () => { const r = await setAutoBoletaAction(!enabled); if (r.ok) router.refresh(); else setErr(r.error); });
+      }}>{pending ? "Guardando…" : enabled ? "Desactivar" : "Activar boleta al cobrar"}</button>
+      {err && <p className="error" role="alert">{err}</p>}
     </div>
   );
 }

@@ -94,7 +94,16 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
     return list.some((e) => { const a = e.after as { tipo?: number; folio?: number } | null; return a?.tipo === 39 && a.folio === folio; });
   }
 
+  /** Modo "boleta desde el sistema": al cobrar se emite la boleta aquí; la máquina TUU solo cobra (no emite boleta). */
+  const autoOn = async () => (await integrations.latest('dte-auto'))?.enabled === true;
+
   return {
+    async autoBoleta(actor: Actor | null): Promise<boolean> { assertCan(actor, 'dte.issue'); return (await config()) !== null && autoOn(); },
+    async setAutoBoleta(actor: Actor | null, enabled: boolean): Promise<void> {
+      assertCan(actor, 'settings.write');
+      if (enabled && !(await config())) throw businessRule('Primero conecta Haulmer.');
+      await uow.run((tx) => tx.audit.write({ action: 'integration.set', entity: 'dte-auto', entityId: 'dte-auto', userId: actor.userId, after: { enabled: enabled === true } }));
+    },
     /** Boletas emitidas en Haulmer en una fecha (para traer una que se emitió fuera del sistema). */
     async issuedOn(actor: Actor | null, fecha: string): Promise<IssuedDoc[]> {
       assertCan(actor, 'dte.issue');
@@ -228,7 +237,7 @@ export function createDteService({ uow, integrations, catalog, canSee, now = () 
       if (got.sale.status !== 'COMPLETED') throw businessRule('No se puede emitir boleta de una venta anulada.');
       const methods = new Map((await catalog.listPaymentMethods()).map((m) => [m.id, m.code]));
       const codes = [...got.payments].sort((a, b) => b.amount - a.amount).map((p) => methods.get(p.methodId) ?? '');
-      if (codes.some((x) => CARD.includes(x)) && !opts.allowCard) throw businessRule('Esta venta se pagó con tarjeta en la máquina TUU, que ya emite su boleta. Confirma solo si TUU no la emitió.');
+      if (codes.some((x) => CARD.includes(x)) && !opts.allowCard && !(await autoOn())) throw businessRule('Esta venta se pagó con tarjeta en la máquina TUU, que ya emite su boleta. Confirma solo si TUU no la emitió.');
       const fecha = businessDateOf(now(), (await catalog.businessSettings()).timezone);
       const lines = got.items.map((it) => ({ name: it.nameSnapshot, qty: milliToNumber(it.enteredQuantity), lineTotal: it.lineTotal, exempt: it.vatTreatment === 'EXENTO' }));
       let built; try { built = buildBoleta(c.org, fecha, lines, medioPagoFor(codes)); } catch (e) { throw businessRule((e as Error).message); }

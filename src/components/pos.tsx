@@ -5,6 +5,7 @@ import { parseDiscount, spreadDiscount } from "@/domain/pricing/discount";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { closeSaleAction, posSearchAction } from "@/actions/sales.actions";
+import { issueBoletaAction } from "@/actions/dte.actions";
 import type { ProductPublicDTO } from "@/dto/product.dto";
 import { parseQuantity } from "@/core/money/quantity";
 import { lineTotalPerBase } from "@/core/money/iva";
@@ -21,7 +22,7 @@ const lineTotal = (l: Line) => { try { const u = unitPrice(l); return Number.isF
 const plainQty = (t: string | null) => { if (t == null) return null; const [i, f = ""] = t.split("."); const fr = f.replace(/0+$/, ""); return fr ? `${i},${fr}` : i; };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string }) {
+export function Pos({ channels, methods, isAdmin, today, autoBoleta = false }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean }) {
   const router = useRouter();
   const local = channels.find((c) => c.code === "LOCAL") ?? channels[0];
   const cash = methods.find((m) => m.code === "CASH") ?? methods[0];
@@ -32,7 +33,7 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
   const [received, setReceived] = useState("");
   // Solo administrador: fecha de la venta (para pasar comprobantes atrasados de TUU). Se mantiene entre ventas.
   const [saleDate, setSaleDate] = useState(today); const [tuuRef, setTuuRef] = useState("");
-  const [doc, setDoc] = useState<"boleta" | "factura">("boleta");          // factura: al cobrar se abre el formulario de factura de la venta
+  const [doc, setDoc] = useState<"boleta" | "factura" | "sin">("boleta");          // factura: al cobrar se abre el formulario de factura de la venta
   const backdated = isAdmin && saleDate && saleDate !== today;
   const [error, setError] = useState<string | null>(null); const [pending, start] = useTransition();
   const searchRef = useRef<HTMLInputElement>(null); const seq = useRef(0);
@@ -132,7 +133,16 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
     start(async () => {
       try {
         const r = await closeSaleAction({ ...input, idempotencyKey });
-        if (r.ok) { const f = doc === "factura"; reset(); setTuuRef(""); setDoc("boleta"); router.push(`/ventas/${r.id}?nueva=1${f ? "&factura=1" : ""}`); return; }
+        if (r.ok) {
+          const f = doc === "factura"; const emit = autoBoleta && doc === "boleta" && !backdated;
+          reset(); setTuuRef(""); setDoc("boleta");
+          if (emit) {   // boleta desde el sistema: se emite al tiro y se abre para imprimir (la máquina TUU solo cobra)
+            const b = await issueBoletaAction(String(r.id), true).catch(() => ({ ok: false as const, error: "No hubo respuesta de Haulmer." }));
+            if (b.ok) { router.push(`/ventas/${r.id}/boleta?print=1`); return; }
+            router.push(`/ventas/${r.id}?nueva=1&dteError=${encodeURIComponent(b.error ?? "error desconocido")}`); return;
+          }
+          router.push(`/ventas/${r.id}?nueva=1${f ? "&factura=1" : ""}`); return;
+        }
         if (r.code === "CONFLICT") attempt.current = null;
         setError(r.error);
       } catch { setError("No hubo respuesta del servidor. Revisa la conexión y presiona Cobrar de nuevo: la venta no se duplicará."); }
@@ -228,7 +238,9 @@ export function Pos({ channels, methods, isAdmin, today }: { channels: Opt[]; me
         <div className="doc-toggle" role="radiogroup" aria-label="Documento">
           <button type="button" role="radio" aria-checked={doc === "boleta"} className={doc === "boleta" ? "on" : ""} onClick={() => setDoc("boleta")}>Boleta</button>
           <button type="button" role="radio" aria-checked={doc === "factura"} className={doc === "factura" ? "on" : ""} onClick={() => setDoc("factura")}>Factura</button>
+          {autoBoleta && <button type="button" role="radio" aria-checked={doc === "sin"} className={doc === "sin" ? "on" : ""} onClick={() => setDoc("sin")} title="Por ejemplo, si la plataforma ya emite el documento">Sin boleta</button>}
         </div>
+        {autoBoleta && doc === "boleta" && <p className="muted small" style={{ margin: "4px 0 0" }}>{backdated ? "Venta atrasada: la boleta no se emite sola (emítela desde la venta si corresponde)." : "Al cobrar se emite la boleta electrónica y se abre para imprimir. En la máquina TUU cobra sin boleta."}</p>}
         {doc === "factura" && <p className="muted small" style={{ margin: "4px 0 0" }}>Al cobrar te pedirá el RUT del cliente para emitir la factura.</p>}
         <button className="btn btn-primary pos-charge" type="button" onClick={charge} disabled={pending || lines.length === 0 || invalidLine || !paysOk || !discOk}>
           {pending ? "Cobrando…" : backdated ? `Registrar venta del ${saleDate.split("-").reverse().slice(0, 2).join("-")} · ${clp(total)}` : `Cobrar ${clp(total)}`}
