@@ -68,7 +68,7 @@ export function DteSalePanel({ saleId, configured, canConfigure, folio, card, vo
           : <p className="muted small" style={{ marginTop: 0 }}>Para ventas de Rappi, transferencias, efectivo u otras que no pasaron por la máquina TUU.</p>}
         <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || (card && !allowCard)} onClick={() => {
           if (!confirm("¿Emitir la boleta electrónica de esta venta ante el SII? No se puede deshacer.")) return;
-          setErr(null); start(async () => { const r = await issueBoletaAction(saleId, allowCard); if (r.ok) router.push(`/ventas/${saleId}/boleta`); else setErr(r.error); });
+          setErr(null); start(async () => { const r = await issueBoletaAction(saleId, allowCard); if (r.ok) router.push(`/ventas/${saleId}/boleta?print=1`); else setErr(r.error); });
         }}>{pending ? "Emitiendo…" : "Emitir boleta electrónica"}</button></div>
         {err && <p className="error" role="alert">{err}</p>}
       </>)}
@@ -106,7 +106,7 @@ function FacturaForm({ saleId, card }: { saleId: string; card: boolean }) {
     {card && <label className="inline small" style={{ fontWeight: 400 }}><input type="checkbox" checked={allowCard} onChange={(e) => setAllowCard(e.target.checked)} style={{ width: "auto" }} /> Se pagó con tarjeta: la máquina TUU ya emitió una boleta; la anularé en Haulmer.</label>}
     <div className="actions"><button className="btn btn-primary" type="button" disabled={pending || !ready} onClick={() => {
       if (!confirm(`¿Emitir la factura electrónica a ${r.razonSocial} ante el SII? No se puede deshacer.`)) return;
-      setErr(null); start(async () => { const x = await issueFacturaAction(saleId, r, Number(fma), allowCard); if (x.ok) router.push(`/ventas/${saleId}/boleta`); else setErr(x.error); });
+      setErr(null); start(async () => { const x = await issueFacturaAction(saleId, r, Number(fma), allowCard); if (x.ok) router.push(`/ventas/${saleId}/boleta?print=1`); else setErr(x.error); });
     }}>{pending ? "Emitiendo…" : "Emitir factura electrónica"}</button></div>
     {err && <p className="error" role="alert">{err}</p>}
   </>);
