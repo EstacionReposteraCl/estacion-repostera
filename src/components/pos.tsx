@@ -9,6 +9,7 @@ import { issueBoletaAction } from "@/actions/dte.actions";
 import { tuuStartAction, tuuCheckAction } from "@/actions/tuu.actions";
 import { Icon, type IconName } from "@/components/icons";
 import type { ProductPublicDTO } from "@/dto/product.dto";
+import { channelUnitPrice } from "@/domain/sales/channel-prices";
 import { parseQuantity } from "@/core/money/quantity";
 import { lineTotalPerBase } from "@/core/money/iva";
 
@@ -18,9 +19,10 @@ interface Pay { methodId: string; amount: string }
 const clp = (n: number) => "$" + n.toLocaleString("es-CL");
 const toInt = (s: string) => { const t = s.replace(/[.$\s]/g, ""); return /^\d+$/.test(t) ? Number(t) : NaN; };
 /** Precio efectivo: el manual (si el administrador lo escribió y es válido) o el del catálogo. NaN si el manual es inválido. */
-const unitPrice = (l: Line) => (l.price === undefined || l.price.trim() === "" ? l.p.salePrice : toInt(l.price) > 0 ? toInt(l.price) : NaN);
-const isManual = (l: Line) => { const u = unitPrice(l); return Number.isFinite(u) && u !== l.p.salePrice; };
-const lineTotal = (l: Line) => { try { const u = unitPrice(l); return Number.isFinite(u) ? lineTotalPerBase(parseQuantity(l.qty.replace(",", ".")), u) : NaN; } catch { return NaN; } };
+// base: precio del canal (Uber/Rappi) o el de tienda.
+const unitPrice = (l: Line, base: number) => (l.price === undefined || l.price.trim() === "" ? base : toInt(l.price) > 0 ? toInt(l.price) : NaN);
+const isManual = (l: Line, base: number) => { const u = unitPrice(l, base); return Number.isFinite(u) && u !== base; };
+const lineTotal = (l: Line, base: number) => { try { const u = unitPrice(l, base); return Number.isFinite(u) ? lineTotalPerBase(parseQuantity(l.qty.replace(",", ".")), u) : NaN; } catch { return NaN; } };
 const plainQty = (t: string | null) => { if (t == null) return null; const [i, f = ""] = t.split("."); const fr = f.replace(/0+$/, ""); return fr ? `${i},${fr}` : i; };
 const MAIN_PAY = ["CASH", "DEBIT", "CREDIT", "TRANSFER"];
 const PAY_ICON: Record<string, IconName> = { CASH: "cash", DEBIT: "card", CREDIT: "card", TRANSFER: "bank" };
@@ -30,7 +32,7 @@ const CH_ICON: Record<string, IconName> = { LOCAL: "store", UBER: "bike", UBER_E
 const CH_SHORT: Record<string, string> = { MERCADO_LIBRE: "M. Libre", UBER_EATS: "Uber" };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu = false }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean; tuu?: boolean }) {
+export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu = false, channelPrices = {} }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean; tuu?: boolean; channelPrices?: Record<string, { prices: Record<string, number>; factor: number | null }> }) {
   const router = useRouter();
   const local = channels.find((c) => c.code === "LOCAL") ?? channels[0];
   const cash = methods.find((m) => m.code === "CASH") ?? methods[0];
@@ -47,8 +49,12 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
   const searchRef = useRef<HTMLInputElement>(null); const seq = useRef(0);
   const attempt = useRef<{ payload: string; key: string } | null>(null);
 
-  const subtotal = useMemo(() => lines.reduce((s, l) => s + (Number.isFinite(lineTotal(l)) ? lineTotal(l) : 0), 0), [lines]);
-  const invalidLine = lines.some((l) => !Number.isFinite(lineTotal(l)) || lineTotal(l) <= 0);
+  const channel = channels.find((c) => c.id === channelId);
+  // Precio del canal: con Uber/Rappi cada producto toma el precio de la app (o tienda × recargo); el servidor aplica la misma regla.
+  const chList = channel ? channelPrices[channel.code] : undefined;
+  const baseOf = (l: Line) => channelUnitPrice(chList, l.p.id, l.p.salePrice);
+  const subtotal = lines.reduce((s, l) => s + (Number.isFinite(lineTotal(l, baseOf(l))) ? lineTotal(l, baseOf(l)) : 0), 0);
+  const invalidLine = lines.some((l) => !Number.isFinite(lineTotal(l, baseOf(l))) || lineTotal(l, baseOf(l)) <= 0);
   // Descuento a toda la venta (solo administrador): se reparte bajando el precio de cada línea; la boleta suma exacto.
   const [discount, setDiscount] = useState(""); const [showDisc, setShowDisc] = useState(false); const [showDate, setShowDate] = useState(false);
   const disc = useMemo(() => {
@@ -57,10 +63,10 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
     if (amount === null) return { error: "Descuento inválido (escribe un % o un monto menor al total)." } as const;
     if (amount === 0) return null;
     const qtys = lines.map((l) => Number(l.qty.replace(",", ".")));
-    const r = spreadDiscount(lines.map((l, i) => ({ qty: qtys[i], unitPrice: unitPrice(l) })), amount);
+    const r = spreadDiscount(lines.map((l, i) => ({ qty: qtys[i], unitPrice: unitPrice(l, channelUnitPrice(chList, l.p.id, l.p.salePrice)) })), amount);
     if (!r) return { error: "El descuento solo se puede aplicar con cantidades enteras." } as const;
     return { prices: r.prices, applied: r.applied, asked: amount } as const;
-  }, [isAdmin, discount, invalidLine, lines, subtotal]);
+  }, [isAdmin, discount, invalidLine, lines, subtotal, chList]);
   const discOk = !disc || !("error" in disc);
   const total = disc && !("error" in disc) ? subtotal - disc.applied : subtotal;
   // el último pago toma automáticamente lo que falta
@@ -68,7 +74,6 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
   const paysOk = payAmounts.every((a) => Number.isSafeInteger(a) && a > 0) && payAmounts.reduce((s, a) => s + a, 0) === total;
   const isCashOnly = pays.length === 1 && pays[0].methodId === cash?.id;
   const change = isCashOnly && received ? toInt(received) - total : NaN;
-  const channel = channels.find((c) => c.id === channelId);
 
   async function runSearch(term: string) {
     const my = ++seq.current; setSearching(true);
@@ -165,7 +170,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
     if (tuu && !backdated && cardIdx.length > 1) { setError("Con la máquina TUU solo se puede cobrar una parte con tarjeta."); return; }
     const card = tuu && !backdated && !alreadyPaid && cardIdx.length === 1 ? { amount: payAmounts[cardIdx[0].i], method: cardIdx[0].code as "DEBIT" | "CREDIT" } : null;
     const d = disc && !("error" in disc) ? disc : null;
-    const input = { lines: lines.map((l, i) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(d ? { manualUnitPrice: d.prices[i] } : isAdmin && isManual(l) ? { manualUnitPrice: unitPrice(l) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
+    const input = { lines: lines.map((l, i) => ({ productId: l.p.id, quantity: l.qty.replace(",", "."), ...(d ? { manualUnitPrice: d.prices[i] } : isAdmin && isManual(l, baseOf(l)) ? { manualUnitPrice: unitPrice(l, baseOf(l)) } : {}) })), channelId, payments: pays.map((p, i) => ({ methodId: p.methodId, amount: payAmounts[i] })),
       externalRef: channel?.code !== "LOCAL" && externalRef.trim() ? externalRef.trim() : backdated && tuuRef.trim() ? `TUU ${tuuRef.trim()}` : null,
       note: [backdated ? "Venta atrasada (comprobante TUU)" : "", d ? `Descuento ${discount.trim().endsWith("%") ? discount.trim() + " " : ""}${clp(d.applied)} sobre ${clp(subtotal)}` : ""].filter(Boolean).join(" · ") || null, ...(backdated ? { saleDate } : {}) };
     const payload = JSON.stringify(input);
@@ -215,7 +220,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
             {results.map((r) => (
               <li key={r.id}><button type="button" onClick={() => add(r)} disabled={r.stock !== null && Number(r.stock) <= 0}>
                 <span className="pr-name">{r.name}<span className="muted small"> · {r.sku}</span></span>
-                <span className="pr-meta">{clp(r.salePrice)}<span className={`small ${r.stock !== null && Number(r.stock) <= 0 ? "out" : "muted"}`}>{r.stock === null ? "servicio" : `stock ${plainQty(r.stock)}`}</span></span>
+                <span className="pr-meta">{clp(channelUnitPrice(chList, r.id, r.salePrice))}<span className={`small ${r.stock !== null && Number(r.stock) <= 0 ? "out" : "muted"}`}>{r.stock === null ? "servicio" : `stock ${plainQty(r.stock)}`}</span></span>
               </button></li>
             ))}
           </ul>
@@ -225,14 +230,14 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
             <table className="list">
               <thead><tr><th>Producto</th><th>Cant.</th><th className="num">Total</th><th></th></tr></thead>
               <tbody>{lines.map((l, i) => {
-                const lt = lineTotal(l); const over = l.p.stock !== null && Number(l.qty.replace(",", ".")) > Number(l.p.stock);
+                const lt = lineTotal(l, baseOf(l)); const over = l.p.stock !== null && Number(l.qty.replace(",", ".")) > Number(l.p.stock);
                 return (
                   <tr key={l.p.id}>
                     <td>{l.p.name}{isAdmin ? (<div className="inline small" style={{ marginTop: 4 }}>
-                      <input className="money" value={l.price ?? String(l.p.salePrice)} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} inputMode="numeric" aria-label={`Precio de ${l.p.name}`} style={{ width: 100, padding: "4px 6px" }} />
-                      <span className="muted">c/u</span>{isManual(l) && <span className="pill pill-warn" title={`Precio de catálogo: ${clp(l.p.salePrice)}`}>precio manual</span>}
-                      {isManual(l) && <button type="button" className="link small" onClick={() => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, price: undefined } : x)))}>volver a {clp(l.p.salePrice)}</button>}
-                    </div>) : <div className="muted small">{clp(l.p.salePrice)} c/u</div>}{over && <div className="out small">supera el stock ({plainQty(l.p.stock)})</div>}</td>
+                      <input className="money" value={l.price ?? String(baseOf(l))} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))} inputMode="numeric" aria-label={`Precio de ${l.p.name}`} style={{ width: 100, padding: "4px 6px" }} />
+                      <span className="muted">c/u</span>{isManual(l, baseOf(l)) ? <span className="pill pill-warn" title={`Precio ${chList ? channel?.name : "de catálogo"}: ${clp(baseOf(l))}`}>precio manual</span> : chList && <span className="pill" title={`En tienda: ${clp(l.p.salePrice)}`}>precio {channel?.name}</span>}
+                      {isManual(l, baseOf(l)) && <button type="button" className="link small" onClick={() => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, price: undefined } : x)))}>volver a {clp(baseOf(l))}</button>}
+                    </div>) : <div className="muted small">{clp(baseOf(l))} c/u{chList && <> · precio {channel?.name}</>}</div>}{over && <div className="out small">supera el stock ({plainQty(l.p.stock)})</div>}</td>
                     <td><div className="qtybox"><button type="button" onClick={() => bump(i, -1)} aria-label="Quitar uno">−</button>
                       <input value={l.qty} onChange={(e) => setQty(i, e.target.value)} inputMode="decimal" aria-label={`Cantidad de ${l.p.name}`} />
                       <button type="button" onClick={() => bump(i, 1)} aria-label="Agregar uno">+</button></div></td>

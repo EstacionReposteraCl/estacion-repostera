@@ -23,7 +23,9 @@ export interface SaleLinePlan {
 }
 export interface SalePlan { lines: SaleLinePlan[]; total: Peso; net: Peso; vat: Peso; stockDemand: Map<string, Milli> }
 
-export interface PlanContext { actor: Actor; products: Map<string, CatalogProduct>; units: Map<string, UnitDef>; vatRate?: number }
+export interface PlanContext { actor: Actor; products: Map<string, CatalogProduct>; units: Map<string, UnitDef>; vatRate?: number;
+  /** Precio del canal (Uber/Rappi) por producto: reemplaza al de tienda; no es "precio manual". */
+  channelPrice?: (productId: string, salePrice: Peso) => Peso }
 
 export function planSale(input: SaleInput, ctx: PlanContext): SalePlan {
   if (!input.idempotencyKey?.trim()) throw validation('Falta la clave de idempotencia.');
@@ -62,7 +64,7 @@ export function planSale(input: SaleInput, ctx: PlanContext): SalePlan {
       const qty = from.code === p.unit.code ? entered : convertToBase(entered, from, p.unit);
       if (qty <= 0n) throw validation(`La cantidad de "${p.name}" es demasiado pequeña.`);
       if (!hasValidDecimals(qty, p.unit.maxDecimals)) throw validation(`"${p.name}": cantidad no válida para su unidad base.`);
-      const price = l.manualUnitPrice ?? p.salePrice;
+      const price = l.manualUnitPrice ?? (ctx.channelPrice ? ctx.channelPrice(p.id, p.salePrice) : p.salePrice);
       lines.push({ ...base, presentationId: null, presentationBaseQuantity: null, enteredQuantity: entered, enteredUnit: from.code, quantity: qty,
         priceBasis: 'PER_BASE_UNIT', unitPrice: price, lineTotal: lineTotalPerBase(qty, price), lineNet: 0, lineVat: 0 });
     }

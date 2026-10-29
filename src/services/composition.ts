@@ -18,7 +18,7 @@ import { createWebOrdersService } from './web-orders.service.ts';
 import type { Actor } from '../core/permissions/permissions.ts';
 
 export function createServices(p: Ports, opts: { actorFor?: (userId: string) => Promise<Actor | null> } = {}) {
-  const sales = createSalesService({ uow: p.uow, catalog: p.catalog, sales: p.sales, now: p.now });
+  const sales = createSalesService({ uow: p.uow, catalog: p.catalog, sales: p.sales, now: p.now, integrations: p.integrations });
   const products = createProductsService({ uow: p.uow, products: p.products });
   return {
     sales,

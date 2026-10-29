@@ -5,17 +5,19 @@ import { fingerprintOfRequest, fingerprintOfStored, sameOperation, type Fingerpr
 import { planSale, type SaleInput } from '../domain/sales/sale-plan.ts';
 import { planOutflow, planInflow } from '../domain/inventory/inventory.ts';
 import { planChargesAtClose, buildFinancial, planLateCharge, planVoidCharge, type ChargeType } from '../domain/charges/charges.ts';
-import type { CatalogReader, UnitOfWork, SaleRecord, SalesReader, SaleListRow, SaleMeta } from '../repositories/ports.ts';
+import type { CatalogReader, UnitOfWork, SaleRecord, SalesReader, SaleListRow, SaleMeta, IntegrationStore } from '../repositories/ports.ts';
+import { channelUnitPrice, parseChannelPriceLists, type ChannelPriceLists, type ChannelPriceList } from '../domain/sales/channel-prices.ts';
 import { canViewSale } from '../policies/sale.policy.ts';
 import { assertChannelAndMethods } from '../domain/sales/channel-rules.ts';
 import { saleScopeFor } from '../policies/sale.policy.ts';
 import { toSaleFinancialAdminDTO, type SaleFinancialAdminDTO } from '../dto/sale-admin.dto.ts';
 import { toSellerSaleDTO, type SellerSaleDTO } from '../dto/sales.dto.ts';
 
-export interface Deps { uow: UnitOfWork; catalog: CatalogReader; sales: SalesReader; now?: () => Date }
+export interface Deps { uow: UnitOfWork; catalog: CatalogReader; sales: SalesReader; now?: () => Date; integrations?: IntegrationStore }
 export interface RequestMeta { ip?: string | null }
 
-export function createSalesService({ uow, catalog, sales, now = () => new Date() }: Deps) {
+export function createSalesService({ uow, catalog, sales, now = () => new Date(), integrations }: Deps) {
+  const priceLists = async (): Promise<ChannelPriceLists> => (integrations ? parseChannelPriceLists(await integrations.latest('channel-prices')) : {});
   /** (interno, no expuesto) Misma clave: si es la misma operación (mismo usuario y mismo contenido) devuelve el resultado anterior; si no, CONFLICT auditado. */
   async function resolveReplay(actor: Actor, saleId: string, fp: Fingerprint, key: string): Promise<SellerSaleDTO> {
       const got = await uow.run((tx) => tx.sales.getWithItems(saleId));
@@ -35,10 +37,26 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
       return (await catalog.businessSettings()).receiptFooter ?? null;
     },
     /** Canales y medios de pago activos para la caja. */
-    async posOptions(actor: Actor | null): Promise<{ channels: { id: string; code: string; name: string }[]; methods: { id: string; code: string; name: string }[]; today: string }> {
+    async posOptions(actor: Actor | null): Promise<{ channels: { id: string; code: string; name: string }[]; methods: { id: string; code: string; name: string }[]; today: string; channelPrices: Record<string, { prices: Record<string, number>; factor: number | null }> }> {
       assertCan(actor, 'sale.create');
-      const [channels, methods, d] = await Promise.all([catalog.listChannels(), catalog.listPaymentMethods(), today()]);
-      return { channels, methods, today: d };
+      const [channels, methods, d, lists] = await Promise.all([catalog.listChannels(), catalog.listPaymentMethods(), today(), priceLists()]);
+      const channelPrices: Record<string, { prices: Record<string, number>; factor: number | null }> = {};
+      for (const [code, l] of Object.entries(lists)) channelPrices[code] = { prices: l.prices, factor: l.factor };
+      return { channels, methods, today: d, channelPrices };
+    },
+    /** Listas de precios por canal (resumen para Configuración). SOLO ADMINISTRADOR. */
+    async channelPriceLists(actor: Actor | null): Promise<ChannelPriceLists> { assertCan(actor, 'settings.write'); return priceLists(); },
+    /** Guarda la lista de un canal (reemplaza la anterior). prices: productId → precio con IVA. SOLO ADMINISTRADOR. */
+    async setChannelPriceList(actor: Actor | null, code: string, list: { prices: Record<string, number>; factor: number | null; source?: string | null }): Promise<void> {
+      assertCan(actor, 'settings.write');
+      if (!/^[A-Z_]{2,30}$/.test(code)) throw validation('Canal inválido.');
+      if (list.factor !== null && !(list.factor > 0 && list.factor < 5)) throw validation('Recargo inválido.');
+      for (const [pid, n] of Object.entries(list.prices)) if (!pid || !Number.isSafeInteger(n) || n <= 0) throw validation('Precio inválido en la lista.');
+      if (!integrations) throw businessRule('Listas de precios no disponibles.');
+      const cur = await priceLists();
+      const next: ChannelPriceList = { prices: list.prices, factor: list.factor, source: list.source ?? null, updatedAt: now().toISOString() };
+      const lists = { ...cur, [code]: next };
+      await uow.run((tx) => tx.audit.write({ action: 'integration.set', entity: 'channel-prices', entityId: 'channel-prices', userId: actor.userId, after: { lists }, metadata: { channel: code, count: Object.keys(list.prices).length, factor: list.factor, source: list.source ?? null } }));
     },
 
     /** Listado del ADMINISTRADOR (todas las ventas del rango, incluidas anuladas). Sin costos. */
@@ -68,7 +86,9 @@ export function createSalesService({ uow, catalog, sales, now = () => new Date()
       if (existing) return resolveReplay(actor, existing.id, fp, input.idempotencyKey);
       const [channel, methods] = await Promise.all([catalog.loadChannel(input.channelId), catalog.loadPaymentMethods(input.payments.map((p) => p.methodId))]);
       assertChannelAndMethods(channel, input.payments.map((p) => p.methodId), methods);
-      const plan = planSale(input, { actor, products, units, vatRate: settings.vatRate });
+      const chCode = (await catalog.listChannels()).find((c) => c.id === input.channelId)?.code ?? null;
+      const chList = chCode ? (await priceLists())[chCode] ?? null : null;
+      const plan = planSale(input, { actor, products, units, vatRate: settings.vatRate, ...(chList ? { channelPrice: (pid: string, sp: number) => channelUnitPrice(chList, pid, sp) } : {}) });
       const charges = planChargesAtClose({ total: plan.total, channelId: input.channelId, payments: input.payments, rules });
       // Venta atrasada (solo administrador): se registra con la fecha indicada; el stock y el costo se descuentan HOY (estado actual).
       const todayStr = businessDateOf(now(), settings.timezone);
