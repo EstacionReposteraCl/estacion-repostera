@@ -11,6 +11,8 @@ export function QuoteDocument({ q, status }: { q: QuoteDoc; status: QuoteShownSt
   const row = (label: string, value: string | null | undefined) => <tr><th>{label}</th><td>{value || "—"}</td></tr>;
   return (
     <article className="quote-doc">
+      {/* Solo en las páginas de cotización: todas las hojas en tamaño carta (las boletas usan la impresora térmica). */}
+      <style>{"@media print { @page { size: letter portrait; margin: 12mm; } }"}</style>
       {status !== "PENDING" && status !== "ACCEPTED" && <div className={`qd-stamp qd-${status.toLowerCase()}`}>{QUOTE_STATUS_LABEL[status]}</div>}
       <header className="qd-head">
         <div className="qd-brand">
