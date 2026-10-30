@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { closeSaleAction, posSearchAction } from "@/actions/sales.actions";
 import { issueBoletaAction } from "@/actions/dte.actions";
 import { tuuStartAction, tuuCheckAction } from "@/actions/tuu.actions";
+import { linkQuoteSaleAction } from "@/actions/quotes.actions";
 import { Icon, type IconName } from "@/components/icons";
 import type { ProductPublicDTO } from "@/dto/product.dto";
 import { channelUnitPrice } from "@/domain/sales/channel-prices";
@@ -32,12 +33,13 @@ const CH_ICON: Record<string, IconName> = { LOCAL: "store", UBER: "bike", UBER_E
 const CH_SHORT: Record<string, string> = { MERCADO_LIBRE: "M. Libre", UBER_EATS: "Uber" };
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu = false, channelPrices = {} }: { channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean; tuu?: boolean; channelPrices?: Record<string, { prices: Record<string, number>; factor: number | null }> }) {
+export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu = false, channelPrices = {}, initial = null }: { initial?: { quoteId: string; code: string; lines: { p: ProductPublicDTO; qty: string; price?: string }[]; discount: number; skipped: string[] } | null; channels: Opt[]; methods: Opt[]; isAdmin: boolean; today: string; autoBoleta?: boolean; tuu?: boolean; channelPrices?: Record<string, { prices: Record<string, number>; factor: number | null }> }) {
   const router = useRouter();
   const local = channels.find((c) => c.code === "LOCAL") ?? channels[0];
   const cash = methods.find((m) => m.code === "CASH") ?? methods[0];
   const [q, setQ] = useState(""); const [results, setResults] = useState<ProductPublicDTO[]>([]); const [searching, setSearching] = useState(false);
-  const [lines, setLines] = useState<Line[]>([]);
+  const [lines, setLines] = useState<Line[]>(() => initial?.lines ?? []);
+  const fromQuote = useRef(initial);
   const [channelId, setChannelId] = useState(local?.id ?? ""); const [externalRef, setExternalRef] = useState("");
   const [pays, setPays] = useState<Pay[]>([{ methodId: cash?.id ?? "", amount: "" }]);
   const [received, setReceived] = useState("");
@@ -56,7 +58,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
   const subtotal = lines.reduce((s, l) => s + (Number.isFinite(lineTotal(l, baseOf(l))) ? lineTotal(l, baseOf(l)) : 0), 0);
   const invalidLine = lines.some((l) => !Number.isFinite(lineTotal(l, baseOf(l))) || lineTotal(l, baseOf(l)) <= 0);
   // Descuento a toda la venta (solo administrador): se reparte bajando el precio de cada línea; la boleta suma exacto.
-  const [discount, setDiscount] = useState(""); const [showDisc, setShowDisc] = useState(false); const [showDate, setShowDate] = useState(false);
+  const [discount, setDiscount] = useState(initial && initial.discount > 0 ? String(initial.discount) : ""); const [showDisc, setShowDisc] = useState(!!(initial && initial.discount > 0)); const [showDate, setShowDate] = useState(false);
   const disc = useMemo(() => {
     if (!isAdmin || !discount.trim() || invalidLine || lines.length === 0) return null;
     const amount = parseDiscount(discount, subtotal);
@@ -182,6 +184,7 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
         if (card && !(await payWithTuu(card.amount, card.method))) return;
         const r = await closeSaleAction({ ...input, idempotencyKey, ...(card ? { note: [input.note, "Tarjeta cobrada desde el sistema (TUU)"].filter(Boolean).join(" · ") } : {}) });
         if (r.ok) {
+          if (fromQuote.current) { await linkQuoteSaleAction(fromQuote.current.quoteId, String(r.id)).catch(() => null); fromQuote.current = null; }
           const f = doc === "factura"; const emit = autoBoleta && doc === "boleta" && !backdated;
           reset(); setTuuRef(""); setDoc("boleta"); setAlreadyPaid(false); tuuPaid.current = null; tuuPending.current = null;
           if (emit) {   // boleta desde el sistema: se emite al tiro y se abre para imprimir (la máquina TUU solo cobra)
@@ -197,7 +200,8 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
     });
   }
 
-  return (
+  return (<>
+    {initial && <p className="tile pos-open-hint">Cobrando la cotización <b>{initial.code}</b>: revisa los productos y cobra.{initial.skipped.length > 0 && <> No se pudieron cargar: {initial.skipped.join(", ")}.</>}</p>}
     <div className="pos">
       {tuuWait && (
         <div className="tuu-wait" role="dialog" aria-live="polite">
@@ -358,5 +362,5 @@ export function Pos({ channels, methods, isAdmin, today, autoBoleta = false, tuu
         {!isAdmin && <p className="muted small">Los precios los fija el administrador.</p>}
       </aside>
     </div>
-  );
+  </>);
 }

@@ -7,6 +7,7 @@ export const MENU_GROUPS: { title: string; items: Mod[] }[] = [
   { title: "Vender", items: [
     { perm: "sale.create", title: "Caja", text: "Buscar o escanear y cobrar", href: "/ventas/nueva", icon: "cart" },
     { perm: "sale.read.own_today", title: "Ventas", text: "Comprobantes, anulaciones y cargos", href: "/ventas", icon: "list" },
+    { perm: "sale.create", title: "Cotizaciones", text: "Presupuestos para clientes y beneficiarios", href: "/cotizaciones", icon: "file" },
     { perm: "cash.close", title: "Cierre de caja", text: "Abrir, contar y cerrar el turno", href: "/caja/cierre", icon: "lock" },
     { perm: "shipping.labels", title: "Despacho", text: "Etiquetas de pedidos web", href: "/despacho", icon: "truck" },
     { perm: "sale.read.any", title: "Ventas web", text: "Pedidos de la tienda que se registran solos", href: "/ventas-web", icon: "phone" },

@@ -14,6 +14,12 @@ export function createProductsService({ uow, products }: Deps) {
       const rows = await products.search(text, actor.branchId, { limit: Math.min(Math.max(limit, 1), 50), includeInactive: false, withAdminData: false });
       return rows.map(toProductPublicDTO);
     },
+    /** Productos activos por id (DTO público), en el mismo orden; los que no existen o están archivados se omiten. */
+    async publicByIds(actor: Actor | null, ids: string[]): Promise<ProductPublicDTO[]> {
+      assertCan(actor, 'product.read.public');
+      const rows = await Promise.all([...new Set(ids)].slice(0, 200).map((id) => products.getById(String(id), actor.branchId, false)));
+      return rows.filter((r): r is NonNullable<typeof r> => !!r && r.isActive !== false).map(toProductPublicDTO);
+    },
     /** Listado completo del ADMINISTRADOR (con costo promedio y valor). Paginado. */
     async listAdmin(actor: Actor | null, f: Partial<ProductListFilter>): Promise<{ total: number; page: number; pageSize: number; rows: ProductAdminDTO[] }> {
       assertCan(actor, 'product.read.admin');

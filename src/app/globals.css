@@ -586,3 +586,50 @@ table.list.mini td { padding: 6px 2px; } .rep-grid .tile h3 { margin-bottom: 6px
 .cash-line input { width: 110px !important; flex: none; padding: 6px 8px; }
 .cash-line .vuelto { margin: 0; white-space: nowrap; }
 .pos-extras { row-gap: 2px; }
+
+/* ===== Cotizaciones ===== */
+.quote-form .tile { margin-bottom: 14px; }
+.qf-h { font-size: 1rem; margin: 0 0 10px; color: var(--plum); }
+.qf-search { position: relative; margin-bottom: 10px; }
+.qf-search input { width: 100%; }
+.qf-results { position: absolute; z-index: 20; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); max-height: 320px; overflow-y: auto; }
+.qf-results button { display: flex; justify-content: space-between; gap: 10px; width: 100%; padding: 8px 10px; border: 0; background: none; text-align: left; font: inherit; cursor: pointer; border-radius: 8px; color: var(--ink); }
+.qf-results button:hover, .qf-results button:focus-visible { background: var(--bg); }
+.qf-table input { padding: 5px 7px; }
+.qf-qty { width: 70px !important; text-align: right; } .qf-price { width: 100px !important; }
+.qf-pays { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 4px; }
+.qf-sum { display: grid; gap: 4px; max-width: 320px; margin-left: auto; }
+.qf-sum div { display: flex; justify-content: space-between; } .qf-total { font-size: 1.25rem; border-top: 1px solid var(--line); padding-top: 4px; }
+.lbl { display: block; font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
+.quote-actions { margin-bottom: 14px; }
+
+.page-quote { max-width: 900px; }
+.quote-doc { position: relative; background: #fff; color: #111; border: 1px solid var(--line); border-radius: 8px; padding: 28px 32px; font-size: 13px; line-height: 1.35; }
+.quote-doc h3 { margin: 16px 0 6px; padding: 4px 8px; font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; background: #3b2350; color: #fff; border-radius: 3px; }
+.qd-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; border-bottom: 2px solid #3b2350; padding-bottom: 12px; }
+.qd-brand { display: flex; gap: 12px; align-items: center; } .qd-brand div { display: flex; flex-direction: column; font-size: 12px; } .qd-brand b { font-size: 17px; color: #3b2350; }
+.qd-title { text-align: right; } .qd-t { font-size: 22px; font-weight: 800; letter-spacing: .06em; color: #3b2350; } .qd-n { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.qd-title table { margin-left: auto; border-collapse: collapse; } .qd-title th { text-align: right; padding: 1px 8px; font-weight: 600; color: #555; } .qd-title td { text-align: left; padding: 1px 0; }
+.qd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+.qd-kv { width: 100%; border-collapse: collapse; } .qd-kv th, .qd-kv td { border: 1px solid #ccc; padding: 4px 7px; text-align: left; vertical-align: top; } .qd-kv th { width: 42%; background: #f5f2f8; font-weight: 600; }
+.qd-bank { margin-top: 6px; } .qd-bank th { width: 34%; }
+.qd-pays { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; } .qd-pays > span:first-child { font-weight: 600; }
+.qd-box { display: inline-flex; width: 13px; height: 13px; border: 1.3px solid #333; align-items: center; justify-content: center; font-size: 11px; line-height: 1; vertical-align: -2px; margin-right: 3px; font-weight: 700; }
+.qd-lines { width: 100%; border-collapse: collapse; } .qd-lines th, .qd-lines td { border: 1px solid #ccc; padding: 5px 7px; } .qd-lines thead th { background: #f5f2f8; text-align: left; } .qd-lines .num { text-align: right; white-space: nowrap; }
+.qd-lines tfoot td { border: 0; padding: 3px 7px; text-align: right; } .qd-lines tfoot td:last-child { border: 1px solid #ccc; } .qd-lines tfoot .qd-total td { font-weight: 800; font-size: 15px; } .qd-lines tfoot .qd-total td:last-child { background: #f5f2f8; }
+.qd-note { margin: 6px 0 0; font-size: 12px; color: #444; }
+.qd-cond { margin-top: 14px; display: grid; gap: 4px; } .qd-cond span { margin-right: 10px; } .qd-footer { margin-top: 6px; color: #444; white-space: pre-line; }
+.qd-sign { margin-top: 44px; display: flex; justify-content: space-between; align-items: flex-end; } .qd-sign > div:first-child { text-align: center; font-size: 12px; } .qd-sign > div:first-child span { display: block; width: 220px; border-top: 1px solid #333; margin-bottom: 3px; }
+.qd-meta { font-size: 10.5px; color: #777; }
+.qd-stamp { position: absolute; top: 120px; right: 40px; transform: rotate(-12deg); border: 3px solid #b3261e; color: #b3261e; font-size: 26px; font-weight: 800; padding: 4px 16px; border-radius: 6px; opacity: .8; letter-spacing: .08em; text-transform: uppercase; }
+.qd-expired { border-color: #a15c00; color: #a15c00; }
+@media (max-width: 700px) { .quote-doc { padding: 16px; } .qd-head { flex-direction: column; } .qd-title { text-align: left; } .qd-title table { margin-left: 0; } .qd-grid { grid-template-columns: 1fr; } }
+@page quote { size: letter portrait; margin: 12mm; }
+@media print {
+  .page-quote { max-width: none; }
+  .quote-doc { page: quote; border: 0; border-radius: 0; padding: 0; font-size: 11.5px; }
+  .qd-lines tfoot { display: table-row-group; }
+  .quote-doc h3, .qd-kv th, .qd-lines thead th, .qd-lines tfoot .qd-total td:last-child { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+.quote-form textarea, .tile textarea { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+.qf-table td { vertical-align: middle; } .qf-table td input { width: 100%; }
