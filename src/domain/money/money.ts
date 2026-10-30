@@ -12,16 +12,16 @@
  * Cuando TUU o Rappi depositan, se registra un traspaso TUU → Banco / Rappi → Banco.
  * Funciones puras: sin base de datos.
  */
-export const ACCOUNTS = ['CAJA', 'BANCO', 'MP', 'TUU', 'RAPPI', 'UBER'] as const;
+export const ACCOUNTS = ['CAJA', 'BANCO', 'MP', 'TUU', 'RAPPI', 'UBER', 'LIDER'] as const;
 export type Account = (typeof ACCOUNTS)[number];
 export const AVAILABLE: readonly Account[] = ['CAJA', 'BANCO', 'MP'];
-export const RECEIVABLE: readonly Account[] = ['TUU', 'RAPPI', 'UBER'];
-export const ACCOUNT_LABEL: Record<Account, string> = { CAJA: 'Caja (efectivo)', BANCO: 'Banco', MP: 'Mercado Pago', TUU: 'TUU por cobrar', RAPPI: 'Rappi por cobrar', UBER: 'Uber por cobrar' };
+export const RECEIVABLE: readonly Account[] = ['TUU', 'RAPPI', 'UBER', 'LIDER'];
+export const ACCOUNT_LABEL: Record<Account, string> = { CAJA: 'Caja (efectivo)', BANCO: 'Banco', MP: 'Mercado Pago', TUU: 'TUU por cobrar', RAPPI: 'Rappi por cobrar', UBER: 'Uber por cobrar', LIDER: 'Líder por cobrar' };
 
 /** Con qué se pagó una compra o gasto. NONE = crédito del proveedor, tarjeta personal o capital propio: no sale del dinero del negocio. */
-export const PAID_FROM = ['CAJA', 'BANCO', 'MP', 'UBER', 'RAPPI', 'TUU', 'NONE'] as const;   // UBER/RAPPI/TUU: la plataforma lo descontó de lo que te paga
+export const PAID_FROM = ['CAJA', 'BANCO', 'MP', 'UBER', 'RAPPI', 'TUU', 'LIDER', 'NONE'] as const;   // UBER/RAPPI/TUU: la plataforma lo descontó de lo que te paga
 export type PaidFrom = (typeof PAID_FROM)[number];
-export const PAID_FROM_LABEL: Record<PaidFrom, string> = { CAJA: 'Efectivo de la caja', BANCO: 'Banco (transferencia o débito)', MP: 'Mercado Pago', UBER: 'Descontado por Uber (de su pago)', RAPPI: 'Descontado por Rappi (de su pago)', TUU: 'Descontado por TUU (de su abono)', NONE: 'Crédito / capital propio (no sale del dinero del negocio)' };
+export const PAID_FROM_LABEL: Record<PaidFrom, string> = { CAJA: 'Efectivo de la caja', BANCO: 'Banco (transferencia o débito)', MP: 'Mercado Pago', UBER: 'Descontado por Uber (de su pago)', RAPPI: 'Descontado por Rappi (de su pago)', TUU: 'Descontado por TUU (de su abono)', LIDER: 'Descontado por Líder (de su liquidación)', NONE: 'Crédito / capital propio (no sale del dinero del negocio)' };
 export const isPaidFrom = (v: unknown): v is PaidFrom => typeof v === 'string' && (PAID_FROM as readonly string[]).includes(v);
 
 /** Para traspasos: EXTERNO = fuera del negocio (retiro personal o aporte de capital). */
@@ -39,6 +39,7 @@ export function accountForMethod(code: string | null | undefined): Account {
     case 'MERCADO_PAGO': return 'MP';
     case 'RAPPI': return 'RAPPI';
     case 'UBER': case 'UBER_EATS': return 'UBER';
+    case 'LIDER': return 'LIDER';
     default: return 'BANCO';
   }
 }
@@ -49,6 +50,7 @@ export function accountForCharge(c: { paymentMethodCode: string | null; channelC
   if (c.channelCode === 'MERCADO_LIBRE') return 'MP';
   if (c.channelCode === 'RAPPI') return 'RAPPI';
   if (c.channelCode === 'UBER' || c.channelCode === 'UBER_EATS') return 'UBER';
+  if (c.channelCode === 'LIDER') return 'LIDER';
   return accountForMethod(c.mainPaymentCode);
 }
 
