@@ -5,7 +5,7 @@ import { businessDateOf } from '../core/time/business-date.ts';
 import type { UnitOfWork, CatalogReader, IntegrationStore } from '../repositories/ports.ts';
 import {
   QUOTE_PAY, QUOTE_VALIDITY, addDays, lineTotalOf, normalizeRut, quoteTotals, shownStatus,
-  type QuoteDoc, type QuoteLine, type QuotePay, type QuoteProvider, type QuoteShownStatus,
+  type QuoteDoc, type QuoteDocType, type QuoteLine, type QuotePay, type QuoteProvider, type QuoteShownStatus,
 } from '../domain/quotes/quote.ts';
 
 export interface Deps { uow: UnitOfWork; catalog: CatalogReader; integrations: IntegrationStore; now?: () => Date; secret?: () => string }
@@ -33,6 +33,45 @@ export function createQuotesService({ uow, catalog, integrations, now = () => ne
   }
   async function save(actor: Actor, q: QuoteDoc, metadata: Record<string, unknown>) {
     await uow.run((tx) => tx.audit.write({ action: ACTION, entity: ENTITY, entityId: q.id, userId: actor.userId, after: q as unknown as Record<string, unknown>, metadata }));
+  }
+
+  /** Valida y arma cliente, líneas y totales (lo comparten crear y editar). */
+  async function build(actor: Actor, i: QuoteInput) {
+    const isAdmin = actor.role === 'ADMINISTRADOR';
+    const name = txt(i.customer?.name, 120); if (!name || name.length < 2) throw validation('Indica el nombre del cliente o beneficiario.');
+    let rut: string | null = null; const rawRut = txt(i.customer?.rut, 20);
+    if (rawRut) { rut = normalizeRut(rawRut); if (!rut) throw validation('El RUT del cliente no es válido.'); }
+    const email = txt(i.customer?.email, 120); if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw validation('El correo del cliente no es válido.');
+    if (!(QUOTE_VALIDITY as readonly number[]).includes(Number(i.validDays))) throw validation('Elige una vigencia de 7, 15 o 30 días.');
+    const pays = [...new Set((i.payMethods ?? []).map(String))].filter((p): p is QuotePay => (QUOTE_PAY as readonly string[]).includes(p));
+    if (pays.length === 0) throw validation('Marca al menos un medio de pago.');
+    const docType: QuoteDocType | null = i.docType === 'BOLETA' || i.docType === 'FACTURA' ? i.docType : null;
+    if (!Array.isArray(i.lines) || i.lines.length === 0) throw validation('Agrega al menos un producto.');
+    if (i.lines.length > 200) throw validation('Demasiadas líneas.');
+    const products = await catalog.loadProducts(i.lines.map((l) => l.productId).filter((x): x is string => !!x));
+    const lines: QuoteLine[] = i.lines.map((l) => {
+      const qty = Number(String(l.qty).replace(',', '.'));
+      if (!Number.isFinite(qty) || qty <= 0 || qty > 100000 || Math.round(qty * 1000) !== qty * 1000) throw validation('Cantidad inválida.');
+      if (l.productId) {
+        const p = products.get(l.productId); if (!p) throw validation('Producto inexistente.');
+        if (!p.isActive) throw businessRule(`"${p.name}" está archivado.`);
+        let price = p.salePrice;
+        if (l.unitPrice != null && Number(l.unitPrice) !== p.salePrice) {
+          if (!isAdmin) throw forbidden('Solo la administradora puede cambiar precios.');
+          price = Number(l.unitPrice); if (!Number.isSafeInteger(price) || price <= 0) throw validation(`Precio inválido para "${p.name}".`);
+        }
+        return { productId: p.id, sku: p.sku, name: p.name, qty, unitPrice: price, total: lineTotalOf(qty, price) };
+      }
+      const n = txt(l.name, 160); if (!n) throw validation('Escribe la descripción de la línea (p. ej. "Despacho a domicilio").');
+      const price = Number(l.unitPrice); if (!Number.isSafeInteger(price) || price < 0) throw validation(`Precio inválido para "${n}".`);
+      return { productId: null, sku: null, name: n, qty, unitPrice: price, total: lineTotalOf(qty, price) };
+    });
+    const discount = Math.trunc(Number(i.discount ?? 0)) || 0;
+    if (discount !== 0 && !isAdmin) throw forbidden('Solo la administradora puede dar descuentos.');
+    const subtotal = lines.reduce((s, l) => s + l.total, 0);
+    if (discount < 0 || discount >= subtotal) throw validation('Descuento inválido.');
+    const settings = await catalog.businessSettings();
+    return { customer: { name, rut, phone: txt(i.customer?.phone, 30), email }, lines, ...quoteTotals(lines, discount, settings.vatRate), payMethods: pays, docType, notes: txt(i.notes, 600), validDays: Number(i.validDays) };
   }
 
   return {
@@ -64,52 +103,26 @@ export function createQuotesService({ uow, catalog, integrations, now = () => ne
     /** Crea una cotización. Precios: los de la tienda; solo el ADMINISTRADOR puede cambiar un precio de producto o dar descuento. */
     async create(actor: Actor | null, i: QuoteInput): Promise<{ id: string; number: number }> {
       assertCan(actor, 'sale.create');
-      const isAdmin = actor.role === 'ADMINISTRADOR';
-      const name = txt(i.customer?.name, 120); if (!name || name.length < 2) throw validation('Indica el nombre del cliente o beneficiario.');
-      let rut: string | null = null; const rawRut = txt(i.customer?.rut, 20);
-      if (rawRut) { rut = normalizeRut(rawRut); if (!rut) throw validation('El RUT del cliente no es válido.'); }
-      const email = txt(i.customer?.email, 120); if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw validation('El correo del cliente no es válido.');
-      if (!(QUOTE_VALIDITY as readonly number[]).includes(Number(i.validDays))) throw validation('Elige una vigencia de 7, 15 o 30 días.');
-      const pays = [...new Set((i.payMethods ?? []).map(String))].filter((p): p is QuotePay => (QUOTE_PAY as readonly string[]).includes(p));
-      if (pays.length === 0) throw validation('Marca al menos un medio de pago.');
-      const docType = i.docType === 'BOLETA' || i.docType === 'FACTURA' ? i.docType : null;
-      if (!Array.isArray(i.lines) || i.lines.length === 0) throw validation('Agrega al menos un producto.');
-      if (i.lines.length > 200) throw validation('Demasiadas líneas.');
-      const products = await catalog.loadProducts(i.lines.map((l) => l.productId).filter((x): x is string => !!x));
-      const lines: QuoteLine[] = i.lines.map((l) => {
-        const qty = Number(String(l.qty).replace(',', '.'));
-        if (!Number.isFinite(qty) || qty <= 0 || qty > 100000 || Math.round(qty * 1000) !== qty * 1000) throw validation('Cantidad inválida.');
-        if (l.productId) {
-          const p = products.get(l.productId); if (!p) throw validation('Producto inexistente.');
-          if (!p.isActive) throw businessRule(`"${p.name}" está archivado.`);
-          let price = p.salePrice;
-          if (l.unitPrice != null && Number(l.unitPrice) !== p.salePrice) {
-            if (!isAdmin) throw forbidden('Solo la administradora puede cambiar precios.');
-            price = Number(l.unitPrice); if (!Number.isSafeInteger(price) || price <= 0) throw validation(`Precio inválido para "${p.name}".`);
-          }
-          return { productId: p.id, sku: p.sku, name: p.name, qty, unitPrice: price, total: lineTotalOf(qty, price) };
-        }
-        const n = txt(l.name, 160); if (!n) throw validation('Escribe la descripción de la línea (p. ej. "Despacho a domicilio").');
-        const price = Number(l.unitPrice); if (!Number.isSafeInteger(price) || price < 0) throw validation(`Precio inválido para "${n}".`);
-        return { productId: null, sku: null, name: n, qty, unitPrice: price, total: lineTotalOf(qty, price) };
-      });
-      const discount = Math.trunc(Number(i.discount ?? 0)) || 0;
-      if (discount !== 0 && !isAdmin) throw forbidden('Solo la administradora puede dar descuentos.');
-      const subtotal = lines.reduce((s, l) => s + l.total, 0);
-      if (discount < 0 || discount >= subtotal) throw validation('Descuento inválido.');
-      const settings = await catalog.businessSettings(); const date = await today();
+      const parts = await build(actor, i); const date = await today();
       const existing = await integrations.latestEntries(ACTION, ENTITY, 100000);
       const number = existing.reduce((m, r) => Math.max(m, Number((r.after as { number?: number }).number) || 0), 0) + 1;
-      const id = randomUUID().replace(/-/g, '').slice(0, 20); const validDays = Number(i.validDays);
+      const id = randomUUID().replace(/-/g, '').slice(0, 20);
       const q: QuoteDoc = {
-        id, number, date, validDays, validUntil: addDays(date, validDays),
-        customer: { name, rut, phone: txt(i.customer?.phone, 30), email },
-        lines, ...quoteTotals(lines, discount, settings.vatRate), payMethods: pays, docType, notes: txt(i.notes, 600),
+        id, number, date, ...parts, validUntil: addDays(date, parts.validDays),
         provider: await provider(), status: 'PENDING', statusNote: null, saleId: null,
         createdBy: actor.email.split('@')[0], createdAt: now().toISOString(),
       };
       await save(actor, q, { created: true, number });
       return { id, number };
+    },
+    /** Edita una cotización (mismo N° y fecha). No se puede si está anulada o ya cobrada en una venta. */
+    async update(actor: Actor | null, id: string, i: QuoteInput): Promise<void> {
+      assertCan(actor, 'sale.create');
+      const q = await load(String(id)); if (!q) throw notFound('Cotización');
+      if (q.status === 'VOID') throw businessRule('La cotización está anulada: reactívala para editarla.');
+      if (q.saleId) throw businessRule('Esta cotización ya se cobró en una venta; haz una nueva.');
+      const parts = await build(actor, i);
+      await save(actor, { ...q, ...parts, validUntil: addDays(q.date, parts.validDays), provider: await provider(), editedBy: actor.email.split('@')[0], editedAt: now().toISOString() } as QuoteDoc, { edited: true, lines: parts.lines.length, total: parts.total });
     },
 
     /** Aceptada / Anulada / vuelve a Pendiente. Anular una aceptada solo la administradora. */

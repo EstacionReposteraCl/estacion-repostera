@@ -4,7 +4,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { posSearchAction } from "@/actions/sales.actions";
-import { createQuoteAction } from "@/actions/quotes.actions";
+import { createQuoteAction, updateQuoteAction } from "@/actions/quotes.actions";
 import type { ProductPublicDTO } from "@/dto/product.dto";
 import { QUOTE_PAY, QUOTE_PAY_LABEL, QUOTE_VALIDITY, quoteTotals, lineTotalOf, type QuotePay } from "@/domain/quotes/quote";
 
@@ -13,15 +13,21 @@ const clp = (n: number) => "$" + Math.round(n).toLocaleString("es-CL");
 const toInt = (s: string) => { const t = s.replace(/[.$\s]/g, ""); return /^\d+$/.test(t) ? Number(t) : NaN; };
 const toQty = (s: string) => { const n = Number(s.replace(",", ".")); return Number.isFinite(n) && n > 0 ? n : NaN; };
 
-export function QuoteForm({ isAdmin }: { isAdmin: boolean }) {
+export interface QuoteFormInitial {
+  id: string; customer: { name: string; rut: string; phone: string; email: string };
+  lines: { productId: string | null; name: string; sku: string | null; qty: string; price: string; base: number | null }[];
+  validDays: number; payMethods: QuotePay[]; docType: "" | "BOLETA" | "FACTURA"; discount: number; notes: string;
+}
+
+export function QuoteForm({ isAdmin, initial = null }: { isAdmin: boolean; initial?: QuoteFormInitial | null }) {
   const router = useRouter(); const [pending, start] = useTransition();
-  const [cust, setCust] = useState({ name: "", rut: "", phone: "", email: "" });
-  const [lines, setLines] = useState<Line[]>([]); const keyRef = useRef(1);
+  const [cust, setCust] = useState(initial?.customer ?? { name: "", rut: "", phone: "", email: "" });
+  const [lines, setLines] = useState<Line[]>(() => (initial?.lines ?? []).map((l, i) => ({ ...l, key: i + 1 }))); const keyRef = useRef((initial?.lines.length ?? 0) + 1);
   const [q, setQ] = useState(""); const [results, setResults] = useState<ProductPublicDTO[]>([]); const [searching, setSearching] = useState(false); const seq = useRef(0);
-  const [validDays, setValidDays] = useState(7);
-  const [pays, setPays] = useState<QuotePay[]>([...QUOTE_PAY.filter((p) => p !== "OTHER")]);
-  const [docType, setDocType] = useState<"" | "BOLETA" | "FACTURA">("");
-  const [discount, setDiscount] = useState(""); const [notes, setNotes] = useState("");
+  const [validDays, setValidDays] = useState(initial?.validDays ?? 7);
+  const [pays, setPays] = useState<QuotePay[]>(initial?.payMethods ?? [...QUOTE_PAY.filter((p) => p !== "OTHER")]);
+  const [docType, setDocType] = useState<"" | "BOLETA" | "FACTURA">(initial?.docType ?? "");
+  const [discount, setDiscount] = useState(initial && initial.discount > 0 ? String(initial.discount) : ""); const [notes, setNotes] = useState(initial?.notes ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const priceOf = (l: Line) => toInt(l.price);
@@ -54,14 +60,15 @@ export function QuoteForm({ isAdmin }: { isAdmin: boolean }) {
     if (bad) return setError("Revisa las cantidades, precios y descripciones de las líneas.");
     if (pays.length === 0) return setError("Marca al menos un medio de pago.");
     start(async () => {
-      const r = await createQuoteAction({
+      const data = {
         customer: cust, validDays, payMethods: pays, docType: docType || null, notes, discount: Number.isFinite(disc) ? disc : 0,
         lines: lines.map((l) => (l.productId
           ? { productId: l.productId, qty: l.qty, ...(isAdmin && priceOf(l) !== l.base ? { unitPrice: priceOf(l) } : {}) }
           : { name: l.name, qty: l.qty, unitPrice: priceOf(l) })),
-      });
+      };
+      const r = initial ? await updateQuoteAction(initial.id, data) : await createQuoteAction(data);
       if (!r.ok) return setError(r.error);
-      router.push(`/cotizaciones/${r.id}`);
+      router.push(`/cotizaciones/${initial ? initial.id : (r as { id: string }).id}`); router.refresh();
     });
   }
 
@@ -136,7 +143,7 @@ export function QuoteForm({ isAdmin }: { isAdmin: boolean }) {
         <div className="qf-total"><span>Total</span><b>{clp(t.total)}</b></div>
       </section>
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="actions"><button type="button" className="btn btn-primary" onClick={submit} disabled={pending}>{pending ? "Guardando…" : "Guardar cotización"}</button></div>
+      <div className="actions"><button type="button" className="btn btn-primary" onClick={submit} disabled={pending}>{pending ? "Guardando…" : initial ? "Guardar cambios" : "Guardar cotización"}</button></div>
     </div>
   );
 }

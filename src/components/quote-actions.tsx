@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { setQuoteStatusAction, setQuoteValidityAction } from "@/actions/quotes.actions";
 import { QUOTE_VALIDITY } from "@/domain/quotes/quote";
 
-export function QuoteActions({ id, code, shareRef, phone, email, status, canReopen, validDays }: { validDays: number; id: string; code: string; shareRef: string | null; phone: string | null; email: string | null; status: string; canReopen: boolean }) {
+export function QuoteActions({ id, code, shareRef, phone, email, status, canReopen, validDays, sold = false }: { sold?: boolean; validDays: number; id: string; code: string; shareRef: string | null; phone: string | null; email: string | null; status: string; canReopen: boolean }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
   const [ph, setPh] = useState(phone ?? ""); const [mail, setMail] = useState(email ?? ""); const [copied, setCopied] = useState(false);
   const url = () => `${window.location.origin}/q/${shareRef}`;
@@ -17,6 +17,7 @@ export function QuoteActions({ id, code, shareRef, phone, email, status, canReop
     <div className="quote-actions noprint">
       <div className="actions" style={{ marginTop: 0 }}>
         <button className="btn btn-primary" type="button" onClick={() => window.print()}>🖨 Imprimir / PDF</button>
+        {status !== "VOID" && !sold && <Link className="btn" href={`/cotizaciones/${id}/editar`}>✏️ Editar</Link>}
         {status !== "VOID" && <Link className="btn" href={`/ventas/nueva?cot=${id}`}>Cobrar en la caja</Link>}
         {status === "PENDING" || status === "EXPIRED" ? <button className="btn" type="button" disabled={pending} onClick={() => set("ACCEPTED")}>Marcar aceptada</button> : null}
         {status !== "VOID" ? <button className="btn" type="button" disabled={pending} onClick={() => { if (confirm("¿Anular esta cotización?")) set("VOID"); }}>Anular</button>

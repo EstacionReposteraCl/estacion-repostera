@@ -18,7 +18,7 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
     <main className="page page-quote">
       <div className="pagehead noprint"><h1>Cotización {quoteCode(q.number)} <span className="small muted">· {QUOTE_STATUS_LABEL[r.status]}</span></h1><Link className="btn" href="/cotizaciones">Volver</Link></div>
       {q.saleId && <p className="noprint small">Cobrada en la <Link href={`/ventas/${q.saleId}`}>venta registrada</Link>.</p>}
-      <QuoteActions id={q.id} code={quoteCode(q.number)} shareRef={share} phone={q.customer.phone} email={q.customer.email} status={r.status} canReopen={can(actor.role, "settings.write")} validDays={q.validDays} />
+      <QuoteActions id={q.id} code={quoteCode(q.number)} shareRef={share} phone={q.customer.phone} email={q.customer.email} status={r.status} canReopen={can(actor.role, "settings.write")} validDays={q.validDays} sold={!!q.saleId} />
       <QuoteDocument q={q} status={r.status} />
     </main>
   );

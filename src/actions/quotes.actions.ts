@@ -13,6 +13,10 @@ export async function createQuoteAction(i: QuoteInput): Promise<R<{ id: string }
   try { const r = await services.quotes.create(await getActor(), i); revalidatePath("/cotizaciones"); return { ok: true, id: r.id }; }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
 }
+export async function updateQuoteAction(id: string, i: QuoteInput): Promise<R<{ id: string }>> {
+  try { await services.quotes.update(await getActor(), String(id), i); revalidatePath("/cotizaciones"); revalidatePath(`/cotizaciones/${id}`); return { ok: true, id: String(id) }; }
+  catch (e) { return { ok: false, error: toClientError(e).message }; }
+}
 export async function setQuoteStatusAction(id: string, status: "PENDING" | "ACCEPTED" | "VOID", note?: string): Promise<R> {
   try { await services.quotes.setStatus(await getActor(), String(id), status, note ?? null); revalidatePath("/cotizaciones"); revalidatePath(`/cotizaciones/${id}`); return { ok: true }; }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
