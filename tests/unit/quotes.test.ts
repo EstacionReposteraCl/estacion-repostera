@@ -34,6 +34,8 @@ test('cotización: vendedor crea con precios de tienda + despacho; correlativo; 
   const ref = await svc.quotes.shareRef(s1, a.id); assert.ok(ref);
   assert.equal((await svc.quotes.publicGet(ref!))?.quote.id, a.id);
   assert.equal(await svc.quotes.publicGet(ref!.slice(0, -1) + (ref!.endsWith('A') ? 'B' : 'A')), null);
+  await svc.quotes.setValidity(s1, a.id, 30); const gv = await svc.quotes.get(s1, a.id); assert.equal(gv.quote.validUntil, addDays(gv.quote.date, 30)); assert.equal(gv.quote.validDays, 30);
+  assert.equal(await code(svc.quotes.setValidity(s1, a.id, 10)), 'VALIDATION');
   await svc.quotes.setStatus(s1, a.id, 'VOID'); assert.equal((await svc.quotes.get(s1, a.id)).status, 'VOID');
   assert.equal(await code(svc.quotes.setStatus(s1, a.id, 'PENDING')), 'FORBIDDEN');
   await svc.quotes.linkSale(admin, b.id, 'sale1'); const gl = await svc.quotes.get(admin, b.id); assert.equal(gl.quote.status, 'ACCEPTED'); assert.equal(gl.quote.saleId, 'sale1');

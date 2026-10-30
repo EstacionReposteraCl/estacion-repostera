@@ -120,6 +120,14 @@ export function createQuotesService({ uow, catalog, integrations, now = () => ne
       if (q.status === 'VOID' && !can(actor.role, 'settings.write')) throw forbidden('Solo la administradora puede reactivar una cotización anulada.');
       await save(actor, { ...q, status, statusNote: txt(note, 200) }, { status, from: q.status });
     },
+    /** Cambia la vigencia (7, 15 o 30 días desde la fecha de la cotización). */
+    async setValidity(actor: Actor | null, id: string, days: number): Promise<void> {
+      assertCan(actor, 'sale.create');
+      const q = await load(String(id)); if (!q) throw notFound('Cotización');
+      if (!(QUOTE_VALIDITY as readonly number[]).includes(Number(days))) throw validation('Elige una vigencia de 7, 15 o 30 días.');
+      if (q.status === 'VOID') throw businessRule('La cotización está anulada.');
+      await save(actor, { ...q, validDays: Number(days), validUntil: addDays(q.date, Number(days)) }, { validDays: Number(days), from: q.validDays });
+    },
     /** Al cobrar en la caja una cotización: queda Aceptada y enlazada a la venta. */
     async linkSale(actor: Actor | null, id: string, saleId: string): Promise<void> {
       assertCan(actor, 'sale.create');

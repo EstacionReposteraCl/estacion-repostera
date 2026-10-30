@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setQuoteStatusAction } from "@/actions/quotes.actions";
+import { setQuoteStatusAction, setQuoteValidityAction } from "@/actions/quotes.actions";
+import { QUOTE_VALIDITY } from "@/domain/quotes/quote";
 
-export function QuoteActions({ id, code, shareRef, phone, email, status, canReopen }: { id: string; code: string; shareRef: string | null; phone: string | null; email: string | null; status: string; canReopen: boolean }) {
+export function QuoteActions({ id, code, shareRef, phone, email, status, canReopen, validDays }: { validDays: number; id: string; code: string; shareRef: string | null; phone: string | null; email: string | null; status: string; canReopen: boolean }) {
   const router = useRouter(); const [pending, start] = useTransition(); const [err, setErr] = useState<string | null>(null);
   const [ph, setPh] = useState(phone ?? ""); const [mail, setMail] = useState(email ?? ""); const [copied, setCopied] = useState(false);
   const url = () => `${window.location.origin}/q/${shareRef}`;
@@ -20,6 +21,8 @@ export function QuoteActions({ id, code, shareRef, phone, email, status, canReop
         {status === "PENDING" || status === "EXPIRED" ? <button className="btn" type="button" disabled={pending} onClick={() => set("ACCEPTED")}>Marcar aceptada</button> : null}
         {status !== "VOID" ? <button className="btn" type="button" disabled={pending} onClick={() => { if (confirm("¿Anular esta cotización?")) set("VOID"); }}>Anular</button>
           : canReopen && <button className="btn" type="button" disabled={pending} onClick={() => set("PENDING")}>Reactivar</button>}
+        {status !== "VOID" && <label className="inline small">Vigencia <select value={validDays} disabled={pending} aria-label="Vigencia" onChange={(e) => { const d = Number(e.target.value); start(async () => { setErr(null); const r = await setQuoteValidityAction(id, d); if (!r.ok) setErr(r.error); else router.refresh(); }); }}>
+          {QUOTE_VALIDITY.map((d) => <option key={d} value={d}>{d} días</option>)}</select></label>}
       </div>
       {shareRef && status !== "VOID" && (
         <div className="share-doc">

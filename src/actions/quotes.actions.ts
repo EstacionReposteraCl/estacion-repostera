@@ -17,6 +17,10 @@ export async function setQuoteStatusAction(id: string, status: "PENDING" | "ACCE
   try { await services.quotes.setStatus(await getActor(), String(id), status, note ?? null); revalidatePath("/cotizaciones"); revalidatePath(`/cotizaciones/${id}`); return { ok: true }; }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
 }
+export async function setQuoteValidityAction(id: string, days: number): Promise<R> {
+  try { await services.quotes.setValidity(await getActor(), String(id), Number(days)); revalidatePath("/cotizaciones"); revalidatePath(`/cotizaciones/${id}`); return { ok: true }; }
+  catch (e) { return { ok: false, error: toClientError(e).message }; }
+}
 export async function quoteShareAction(id: string): Promise<R<{ ref: string | null }>> {
   try { return { ok: true, ref: await services.quotes.shareRef(await getActor(), String(id)) }; }
   catch (e) { return { ok: false, error: toClientError(e).message }; }
